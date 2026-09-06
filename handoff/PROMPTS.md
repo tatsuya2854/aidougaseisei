@@ -70,11 +70,24 @@ high contrast, motion blur on the face
 つまり **Veo（Gemini API経由）は、APIキーさえあれば環境の作り直しなしで自動生成できます。**
 そのためのクライアントを同梱してあります。
 
+### どのキー？
+
+**Google AI Studio の Gemini APIキー**です（`aistudio.google.com` → Get API key）。
+Runwayのキーでも、GCPのサービスアカウントでもありません。
+
+> **一番間違えやすいポイント：Flowのサブスクとキーは別物です。**
+> Google AI Pro / Ultra を契約していても、それはブラウザ版Flowが使える権利であって、
+> APIのVeoが使えるようになるわけではありません。APIは**キーの所属プロジェクトで課金を有効にする**
+> 必要があり、請求も別立てです。`--list-models` にVeoが出てこなければ、原因はほぼこれです。
+
+すでにGCPプロジェクトがあるなら Vertex AI 経由（`aiplatform.googleapis.com`、こちらも到達可能）
+という道もありますが、プロジェクト・課金・OAuthの準備が要るぶん遠回りです。まずはAI Studioのキーが最短。
+
 ```bash
 export GEMINI_API_KEY=...                          # チャットに貼らず環境変数で渡す
 python3 handoff/veo_generate.py --list-models      # 課金なし。キーがVeoに届くか確認
 python3 handoff/veo_generate.py --dry-run          # 送信内容だけ表示
-python3 handoff/veo_generate.py --shots 8          # 1カットだけ試す
+python3 handoff/veo_generate.py --shots 8          # 1カットだけ試す（モデルは自動選択）
 python3 handoff/veo_generate.py                    # 8カットまとめて
 ./handoff/assemble.sh                              # 24秒に組み直す
 ```

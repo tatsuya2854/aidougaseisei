@@ -80,7 +80,8 @@ def plate_jpeg(name, tag='start', width=720):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument('--model', default=os.environ.get('VEO_MODEL', 'veo-3.1-generate-preview'))
+    ap.add_argument('--model', default=os.environ.get('VEO_MODEL', 'auto'),
+                    help="'auto' asks the key which Veo models it can see and picks the newest")
     ap.add_argument('--shots', default='all', help='e.g. 1,3,8')
     ap.add_argument('--aspect', default='9:16')
     ap.add_argument('--resolution', default='1080p')
@@ -97,16 +98,33 @@ def main():
     key = None if a.dry_run else api_key()
     os.makedirs(CLIPS, exist_ok=True); os.makedirs(LOGS, exist_ok=True)
 
-    if a.list_models:
+    def veo_models():
         got = call('/v1beta/models?pageSize=200', key=key)
         names = [m['name'].split('/')[-1] for m in got.get('models', [])]
-        veo = [n for n in names if 'veo' in n.lower()]
+        return names, [n for n in names if 'veo' in n.lower()]
+
+    if a.list_models:
+        names, veo = veo_models()
         print("veo models this key can see:")
         for n in veo: print("  ", n)
         if not veo:
-            print("  (none — Veo needs a paid-tier key)")
-            print("all visible models:", ', '.join(names[:40]), '...')
+            print("  (none)")
+            print("  -> this key has no Veo access. Veo is paid-tier only, and a")
+            print("     Google AI Pro / Flow subscription is NOT the same thing as")
+            print("     API access: enable billing on the key's project.")
+            print("all visible models:", ', '.join(names[:30]), '...')
         return
+
+    if a.model == 'auto' and not a.dry_run:
+        _, veo = veo_models()
+        if not veo:
+            sys.exit("this key cannot see any Veo model. Run --list-models for detail.")
+        rank = lambda n: (('3.1' in n) * 3 + ('3.0' in n or 'veo-3' in n) * 2 + ('2' in n) * 1,
+                          'generate' in n, n)
+        a.model = sorted(veo, key=rank, reverse=True)[0]
+        print("model: %s (auto-selected from what the key can see)" % a.model)
+    elif a.model == 'auto':
+        a.model = 'veo-3.1-generate-preview'
 
     want = [s for s in SHOTS if a.shots == 'all' or s[0].lstrip('0') in
             [x.strip().lstrip('0') for x in a.shots.split(',')]]
