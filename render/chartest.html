@@ -1,0 +1,45 @@
+<!doctype html><html><head><meta charset="utf-8"><title>char test</title>
+<style>html,body{margin:0;background:#2A1B3D;width:1080px;height:1920px;overflow:hidden}canvas{display:block}</style></head>
+<body>
+<script type="importmap">{"imports":{"three":"/node_modules/three/build/three.module.js","three/addons/":"/node_modules/three/examples/jsm/"}}</script>
+<script type="module">
+import * as THREE from 'three';
+import { buildCharacter, poseCharacter, PAL } from './lib/char.js';
+
+const W=1080,H=1920;
+const renderer=new THREE.WebGLRenderer({antialias:true,preserveDrawingBuffer:true});
+renderer.setSize(W,H); renderer.setPixelRatio(1);
+renderer.shadowMap.enabled=true; renderer.shadowMap.type=THREE.PCFSoftShadowMap;
+renderer.outputColorSpace=THREE.SRGBColorSpace;
+document.body.appendChild(renderer.domElement);
+
+const scene=new THREE.Scene(); scene.background=new THREE.Color(0x2A1B3D);
+const camera=new THREE.PerspectiveCamera(32,W/H,0.1,200);
+camera.position.set(0,2.4,12.5); camera.lookAt(0,2.05,0);
+
+scene.add(new THREE.HemisphereLight(0xBFA6FF,0x40204a,0.75));
+const key=new THREE.DirectionalLight(0xFFE2B0,1.5); key.position.set(4,7,6);
+key.castShadow=true; key.shadow.mapSize.set(1024,1024);
+key.shadow.camera.left=-5;key.shadow.camera.right=5;key.shadow.camera.top=6;key.shadow.camera.bottom=-1;
+scene.add(key);
+const rim=new THREE.DirectionalLight(0xFF6FB5,1.1); rim.position.set(-5,4,-6); scene.add(rim);
+const fill=new THREE.PointLight(0xFFA94D,26,18,2); fill.position.set(-2.5,1.2,3.2); scene.add(fill);
+
+const ground=new THREE.Mesh(new THREE.CircleGeometry(14,48),
+  new THREE.MeshPhongMaterial({color:0x51305e,shininess:6}));
+ground.rotation.x=-Math.PI/2; ground.receiveShadow=true; scene.add(ground);
+
+const loader=new THREE.TextureLoader();
+loader.load('/assets/build/face_decal.png',function(tex){
+  tex.colorSpace=THREE.SRGBColorSpace; tex.anisotropy=4;
+  const ch=buildCharacter(tex); scene.add(ch);
+  window.render=function(t){
+    const hop=Math.abs(Math.sin(t*2.0));
+    poseCharacter(ch,{t:t,bob:hop*0.5,squash:-0.18+hop*0.32,lean:-0.09,
+      armSwing:0.25*Math.sin(t*4),legSwing:0.28*Math.sin(t*4),headTilt:-0.12});
+    ch.rotation.y=t*0.55;
+    renderer.render(scene,camera);
+  };
+  window.__DUR=8; window.render(0); window.__ready=true;
+});
+</script></body></html>

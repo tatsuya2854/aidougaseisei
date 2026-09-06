@@ -1,250 +1,238 @@
 # -*- coding: utf-8 -*-
 """
-ChenMe x Halloween promo — original score, fully synthesized.
-Bar = 2.30s (4/4 @ ~104.3 BPM), so the musical bars land on the picture cuts:
-  bar2 = 4.60s (grid)   bar4 = 9.20s (street)   bar7 = 16.10s (reveal)
+ChenMe x Halloween — original score, fully synthesised.
+Fancy / kawaii: music box + glockenspiel + pizzicato, bright major,
+light percussion.  125 BPM (beat 0.48s, bar 1.92s).  Accent hits are
+placed on the picture cuts, which do not sit on a uniform grid.
 """
-import numpy as np, wave, struct, os
+import numpy as np, wave, os
 
 SR   = 44100
 DUR  = 24.0
 N    = int(SR * DUR)
-BAR  = 2.30
-BEAT = BAR / 4.0
-S16  = BEAT / 4.0
+BEAT = 0.48
+BAR  = BEAT * 4
 
-L = np.zeros(N); Rr = np.zeros(N)
-
+L = np.zeros(N); R = np.zeros(N)
 def midi(m): return 440.0 * 2.0 ** ((m - 69) / 12.0)
 
 def add(sig, t0, gain=1.0, pan=0.0):
+    pan = max(-1.0, min(1.0, pan))
     i = int(t0 * SR)
-    if i >= N: return
+    if i >= N or i < 0: return
     s = sig[:max(0, N - i)] * gain
-    lg = np.sqrt((1 - pan) / 2.0) * 1.41421
-    rg = np.sqrt((1 + pan) / 2.0) * 1.41421
-    L[i:i + len(s)] += s * lg
-    Rr[i:i + len(s)] += s * rg
+    L[i:i+len(s)] += s * np.sqrt((1 - pan) / 2) * 1.414
+    R[i:i+len(s)] += s * np.sqrt((1 + pan) / 2) * 1.414
 
-def env(nsamp, a=0.004, d=0.25, s=0.0, r=0.10, hold=0.0):
-    t = np.arange(nsamp) / SR
-    e = np.zeros(nsamp)
-    ai = int(a * SR); di = int(d * SR); hi = int(hold * SR)
-    e[:ai] = np.linspace(0, 1, ai, endpoint=False) if ai else 0
-    j = ai
-    if di:
-        e[j:j + di] = np.linspace(1, s if s > 0 else 0.0001, min(di, nsamp - j))
-        j += di
-    if hi and j < nsamp:
-        e[j:j + hi] = s
-        j += hi
-    if j < nsamp:
-        k = nsamp - j
-        e[j:] = (s if s > 0 else 0.0001) * np.exp(-np.arange(k) / (r * SR + 1))
-    return e
+def _t(d): return np.arange(int(d * SR)) / SR
 
-def pluck(f, dur, bright=0.5, detune=0.0):
-    n = int(dur * SR); t = np.arange(n) / SR
-    y = np.sin(2 * np.pi * f * t)
-    y += bright * 0.45 * np.sin(2 * np.pi * f * 2 * t)
-    y += bright * 0.18 * np.sin(2 * np.pi * f * 3 * t)
-    if detune: y += 0.4 * np.sin(2 * np.pi * f * (1 + detune) * t)
-    return y * env(n, a=0.003, d=dur * 0.9, r=0.05) * 0.5
+# ---------- instruments ----------
+def music_box(f, d=1.6):
+    t = _t(d)
+    y = (np.sin(2*np.pi*f*t) * np.exp(-t*2.6)
+         + 0.34 * np.sin(2*np.pi*f*2*t) * np.exp(-t*4.4)
+         + 0.14 * np.sin(2*np.pi*f*3.01*t) * np.exp(-t*7.0)
+         + 0.07 * np.sin(2*np.pi*f*5.4*t) * np.exp(-t*11.0))
+    hammer = np.random.RandomState(int(f) % 97).randn(len(t)) * np.exp(-t*260) * 0.05
+    a = np.minimum(1, t / 0.002)
+    return (y + hammer) * a * 0.42
 
-def bell(f, dur):
-    n = int(dur * SR); t = np.arange(n) / SR
-    y = (np.sin(2 * np.pi * f * t) * np.exp(-t * 2.2)
-         + 0.42 * np.sin(2 * np.pi * f * 2.76 * t) * np.exp(-t * 4.2)
-         + 0.22 * np.sin(2 * np.pi * f * 5.4 * t) * np.exp(-t * 7.0))
-    return y * env(n, a=0.002, d=dur * 0.98, r=0.12) * 0.42
+def glock(f, d=1.1):
+    t = _t(d)
+    y = (np.sin(2*np.pi*f*t) * np.exp(-t*4.0)
+         + 0.5 * np.sin(2*np.pi*f*2.76*t) * np.exp(-t*6.5)
+         + 0.25 * np.sin(2*np.pi*f*5.4*t) * np.exp(-t*10.0))
+    return y * np.minimum(1, t/0.0015) * 0.30
 
-def marimba(f, dur):
-    n = int(dur * SR); t = np.arange(n) / SR
-    y = np.sin(2 * np.pi * f * t) + 0.30 * np.sin(2 * np.pi * f * 4 * t) * np.exp(-t * 12)
-    return y * np.exp(-t * 6.5) * 0.55
+def pizz(f, d=0.34):
+    t = _t(d)
+    y = np.sin(2*np.pi*f*t) + 0.42*np.sin(2*np.pi*f*2*t) + 0.16*np.sin(2*np.pi*f*3*t)
+    return y * np.exp(-t*11.0) * np.minimum(1, t/0.003) * 0.40
 
-def bass(f, dur):
-    n = int(dur * SR); t = np.arange(n) / SR
-    y = np.tanh(1.7 * (np.sin(2 * np.pi * f * t) + 0.22 * np.sin(2 * np.pi * f * 2 * t)))
-    return y * env(n, a=0.006, d=dur * 0.55, s=0.55, r=0.10, hold=dur * 0.3) * 0.5
+def sub(f, d=0.9):
+    t = _t(d)
+    y = np.sin(2*np.pi*f*t) + 0.18*np.sin(2*np.pi*f*2*t)
+    e = np.minimum(1, t/0.01) * np.exp(-t*2.2)
+    return y * e * 0.42
 
-def kick():
-    d = 0.30; n = int(d * SR); t = np.arange(n) / SR
-    f = 118 * np.exp(-t * 26) + 44
-    y = np.sin(2 * np.pi * np.cumsum(f) / SR)
-    y = np.tanh(y * 1.5)
-    click = np.random.RandomState(1).randn(n) * np.exp(-t * 420) * 0.25
-    return (y * np.exp(-t * 8.5) + click) * 0.9
-
-def hat(dur=0.045, seed=2, tone=1.0):
-    n = int(dur * SR)
-    x = np.random.RandomState(seed).randn(n)
-    x = np.diff(np.concatenate([[0], x]))           # crude high-pass
-    return x * np.exp(-np.arange(n) / (dur * 0.30 * SR)) * 0.16 * tone
-
-def clap(seed=3):
-    d = 0.30; n = int(d * SR); t = np.arange(n) / SR
-    x = np.random.RandomState(seed).randn(n)
-    x = np.diff(np.concatenate([[0], x]))
-    y = np.zeros(n)
-    for off, g in ((0.000, 1.0), (0.011, .8), (0.023, .6)):
-        i = int(off * SR); y[i:] += x[:n - i] * g
-    return y * np.exp(-t * 17) * 0.18
-
-def whoosh(d=0.75, up=True, seed=5):
-    n = int(d * SR); t = np.arange(n) / SR
-    x = np.random.RandomState(seed).randn(n)
-    # sweep a one-pole low-pass by resampling the smoothing coefficient
-    a = np.linspace(0.02, 0.45, n) if up else np.linspace(0.45, 0.02, n)
-    y = np.zeros(n); z = 0.0
-    for i in range(n):
-        z += a[i] * (x[i] - z); y[i] = z
-    e = (t / d) ** 2 if up else np.exp(-t * 4.5)
-    return y * e * 0.55
-
-def riser(d=2.0, seed=7):
-    n = int(d * SR); t = np.arange(n) / SR
-    x = np.random.RandomState(seed).randn(n)
-    a = np.linspace(0.01, 0.55, n)
-    y = np.zeros(n); z = 0.0
-    for i in range(n):
-        z += a[i] * (x[i] - z); y[i] = z
-    tone = np.sin(2 * np.pi * np.cumsum(np.linspace(200, 1400, n)) / SR) * 0.25
-    return (y * 0.9 + tone) * (t / d) ** 2.2 * 0.5
-
-def impact(seed=9):
-    d = 1.5; n = int(d * SR); t = np.arange(n) / SR
-    f = 150 * np.exp(-t * 12) + 38
-    body = np.sin(2 * np.pi * np.cumsum(f) / SR) * np.exp(-t * 3.2)
-    nz = np.random.RandomState(seed).randn(n) * np.exp(-t * 12) * 0.35
-    return (body + nz) * 0.75
-
-def pad(freqs, dur):
-    n = int(dur * SR); t = np.arange(n) / SR
-    y = np.zeros(n)
+def pad(freqs, d):
+    t = _t(d); y = np.zeros(len(t))
     for i, f in enumerate(freqs):
-        for det in (-0.004, 0.0, 0.004):
-            y += np.sin(2 * np.pi * f * (1 + det) * t + i) / (len(freqs) * 3.0)
-    # gentle low-pass
-    z = 0.0; out = np.zeros(n)
-    for i in range(0, n, 1):
-        z += 0.06 * (y[i] - z); out[i] = z
-    return out * env(n, a=0.35, d=0.2, s=0.85, r=0.9, hold=dur * 0.55) * 0.30
+        for det in (-0.0035, 0.0, 0.0035):
+            y += np.sin(2*np.pi*f*(1+det)*t + i*1.7) / (len(freqs)*3.0)
+    z = 0.0; out = np.zeros(len(t))
+    for i in range(len(t)):
+        z += 0.09*(y[i]-z); out[i] = z
+    env = np.minimum(1, t/0.45) * np.minimum(1, (d-t)/0.6) * np.exp(-t*0.10)
+    return out * np.clip(env, 0, 1) * 0.26
 
-# ---------------- arrangement ----------------
-# chords (midi roots + voicings)
-Am = [57, 60, 64, 69]; F = [53, 57, 60, 65]; C = [48, 55, 60, 64]; G = [55, 59, 62, 67]
-Em = [52, 55, 59, 64]; Dm = [50, 57, 62, 65]
-BARS = [Am, F, C, G, Am, F, G, C, G, Am, F]     # bar 0..10
+def kick(d=0.24):
+    t = _t(d)
+    f = 96*np.exp(-t*30) + 46
+    return np.tanh(np.sin(2*np.pi*np.cumsum(f)/SR)*1.2) * np.exp(-t*11) * 0.55
 
-# 1) percussion + groove
-for b in range(11):
-    t0 = b * BAR
-    if t0 >= DUR: break
-    dens = 0 if b < 0 else 1
-    # kick
-    for beat in (0, 2):
-        add(kick(), t0 + beat * BEAT, 0.85 if b < 7 else 0.45)
-    if 2 <= b < 7:
-        add(kick(), t0 + 3.5 * BEAT, 0.55)
-    # hats
-    for k in range(8):
-        g = 1.0 if k % 2 == 0 else 0.62
-        if b >= 7: g *= 0.45
-        add(hat(seed=10 + k, tone=1.0 + 0.2 * (k % 3)), t0 + k * (BEAT / 2), 0.9 * g,
-            pan=0.25 if k % 2 else -0.25)
-    # claps
-    if 2 <= b < 7:
-        for beat in (1, 3):
-            add(clap(seed=20 + b), t0 + beat * BEAT, 0.9)
-    # bass
-    ch = BARS[b]
-    root = midi(ch[0] - 12)
-    if b < 7:
-        for k, g in ((0, 1.0), (1.5, .7), (2, 1.0), (3.5, .7)):
-            add(bass(root, BEAT * 0.9), t0 + k * BEAT, 0.9)
-    else:
-        add(bass(root, BEAT * 3.4), t0, 0.55)
+def shaker(d=0.055, seed=1, tone=1.0):
+    t = _t(d)
+    x = np.random.RandomState(seed).randn(len(t))
+    x = np.diff(np.concatenate([[0], x]))
+    x = np.diff(np.concatenate([[0], x]))
+    return x * np.exp(-t/(d*0.30)) * 0.055 * tone
 
-# 2) 16th pluck arpeggio (bars 0-6)
-for b in range(7):
-    t0 = b * BAR; ch = BARS[b]
-    seq = [ch[0], ch[2], ch[3], ch[2], ch[1], ch[3], ch[2], ch[3],
-           ch[0], ch[2], ch[3] + 12, ch[3], ch[2], ch[3], ch[1], ch[2]]
-    for k, nte in enumerate(seq):
-        g = 0.55 if k % 2 == 0 else 0.36
-        if b >= 2: g *= 1.15
-        add(pluck(midi(nte + 12), S16 * 2.2, bright=0.55),
-            t0 + k * S16, g, pan=-0.35 + 0.7 * ((k % 4) / 3.0))
+def snap(seed=5):
+    d = 0.22; t = _t(d)
+    x = np.random.RandomState(seed).randn(len(t))
+    x = np.diff(np.concatenate([[0], x]))
+    y = np.zeros(len(t))
+    for off, g in ((0.0, 1.0), (0.008, .7), (0.017, .45)):
+        i = int(off*SR); y[i:] += x[:len(t)-i]*g
+    return y * np.exp(-t*24) * 0.13
 
-# 3) melody hook (bars 4-6) — cute minor pentatonic
-MEL = [(0.0, 76, 1.0), (0.5, 74, .5), (1.0, 72, 1.0), (2.0, 69, 1.5),
-       (3.0, 72, .5), (3.5, 74, .5)]
-for b in (4, 5, 6):
-    t0 = b * BAR
-    tr = 0 if b == 4 else (-2 if b == 5 else 2)
-    for (bt, nte, ln) in MEL:
-        add(marimba(midi(nte + tr), BEAT * ln), t0 + bt * BEAT, 0.85, pan=0.12)
-        add(marimba(midi(nte + tr - 12), BEAT * ln), t0 + bt * BEAT, 0.30, pan=-0.12)
-
-# 4) transitions
-add(whoosh(0.85, up=True, seed=31), 4.60 - 0.62, 0.55, pan=-0.2)
-add(whoosh(0.85, up=True, seed=32), 9.20 - 0.62, 0.60, pan=0.2)
-add(riser(2.20, seed=33), 16.20 - 2.20, 0.60)
-add(impact(41), 16.20, 0.85)
-add(whoosh(1.10, up=False, seed=34), 16.20, 0.45)
-
-# tile-pop ticks across the 9-up grid
-for k in range(9):
-    add(marimba(midi(81 + [0, 2, 4, 7, 9, 12, 7, 4, 2][k]), 0.26),
-        4.66 + k * 0.075, 0.34, pan=-0.4 + 0.1 * k)
-
-# 5) reveal sparkle cluster + bright bells (bars 7-10)
-for k, nte in enumerate([84, 88, 91, 96, 93]):
-    add(bell(midi(nte), 2.2), 17.05 + k * 0.085, 0.55, pan=-0.3 + 0.15 * k)
-BELLS = [(7, [(0.0, 72), (1.0, 76), (2.0, 79), (3.0, 84)]),
-         (8, [(0.0, 83), (1.0, 79), (2.0, 76), (3.0, 79)]),
-         (9, [(0.0, 81), (1.5, 76), (2.5, 72), (3.0, 69)]),
-         (10, [(0.0, 72), (1.0, 76)])]
-for b, notes in BELLS:
-    t0 = b * BAR
-    for bt, nte in notes:
-        if t0 + bt * BEAT < DUR:
-            add(bell(midi(nte), 2.6), t0 + bt * BEAT, 0.50, pan=0.10)
-
-# 6) pads
-add(pad([midi(x) for x in [57, 60, 64]], 9.2), 0.0, 0.55)
-add(pad([midi(x) for x in [57, 60, 64, 67]], 7.0), 9.2, 0.55)
-add(pad([midi(x) for x in [60, 64, 67, 72]], 4.2), 16.10, 0.85)
-add(pad([midi(x) for x in [57, 60, 64, 69]], 3.9), 20.30, 0.80)
-
-# ---------------- reverb ----------------
-def reverb(x, wet=0.20, dur=1.1, seed=77):
-    n = int(dur * SR)
+def chime_cluster(root, n=5, seed=3, spread=0.075, gain=1.0):
     rs = np.random.RandomState(seed)
-    ir = rs.randn(n) * np.exp(-np.arange(n) / (0.28 * SR))
-    ir[0] = 1.0
-    ir /= np.abs(ir).sum() / 3.0
-    y = np.convolve(x, ir)[:len(x)]
-    return (1 - wet) * x + wet * y
+    scale = [0, 2, 4, 7, 9, 12, 14, 16, 19]
+    out = []
+    for i in range(n):
+        out.append((i*spread + rs.rand()*0.02,
+                    midi(root + scale[rs.randint(len(scale))]), gain*(0.9 - i*0.06)))
+    return out
 
-L = reverb(L, 0.20, 1.1, 77)
-Rr = reverb(Rr, 0.20, 1.1, 78)
+def harp_run(root, n=10, step=0.045, up=True, gain=0.55):
+    scale = [0, 2, 4, 7, 9]
+    ev = []
+    for i in range(n):
+        k = i if up else (n - 1 - i)
+        ev.append((i*step, midi(root + scale[k % 5] + 12*(k//5)), gain))
+    return ev
 
-# tail fade so the last chord rings out cleanly
-fade = np.ones(N)
-k = int(0.9 * SR)
-fade[-k:] = np.linspace(1, 0, k) ** 1.6
-L *= fade; Rr *= fade
-# soft-clip + normalise
-mx = max(np.abs(L).max(), np.abs(Rr).max())
-L = np.tanh(L / mx * 1.25) * 0.86
-Rr = np.tanh(Rr / mx * 1.25) * 0.86
+def whoosh(d=0.55, seed=7, up=True):
+    t = _t(d)
+    x = np.random.RandomState(seed).randn(len(t))
+    a = np.linspace(0.03, 0.40, len(t)) if up else np.linspace(0.40, 0.03, len(t))
+    y = np.zeros(len(t)); z = 0.0
+    for i in range(len(t)):
+        z += a[i]*(x[i]-z); y[i] = z
+    e = (t/d)**2 if up else np.exp(-t*6.0)
+    return y * e * 0.30
 
-out = np.empty(N * 2, dtype=np.int16)
-out[0::2] = np.clip(L, -1, 1) * 32000
-out[1::2] = np.clip(Rr, -1, 1) * 32000
+def riser(d=1.9, seed=11):
+    t = _t(d)
+    x = np.random.RandomState(seed).randn(len(t))
+    a = np.linspace(0.01, 0.5, len(t))
+    y = np.zeros(len(t)); z = 0.0
+    for i in range(len(t)):
+        z += a[i]*(x[i]-z); y[i] = z
+    tone = np.sin(2*np.pi*np.cumsum(np.linspace(500, 2300, len(t)))/SR) * 0.20
+    return (y*0.8 + tone) * (t/d)**2.4 * 0.32
+
+# ---------- arrangement ----------
+# I - V - vi - IV in C, two bars of each pair; bright and simple
+CH = [[48,55,64,67],[43,50,59,67],[45,52,60,64],[41,48,57,65]]   # C, G, Am, F
+NB = int(DUR / BAR) + 1
+
+def chord(b): return CH[b % 4]
+
+# pad bed
+for b in range(0, NB, 2):
+    c = chord(b)
+    add(pad([midi(x+12) for x in c], BAR*2 + 0.4), b*BAR, 0.55)
+
+# pizzicato bass + light kit
+for b in range(NB):
+    t0 = b*BAR
+    if t0 > DUR: break
+    root = midi(chord(b)[0] - 12)
+    fifth = midi(chord(b)[1] - 12)
+    lively = 1.4 <= t0 < 19.4
+    add(sub(root, BEAT*3.6), t0, 0.55 if lively else 0.34)
+    if lively:
+        for k, f, g in ((0, root, 1.0), (1.5, fifth, .7), (2, root, .95), (3, fifth, .65), (3.5, root, .5)):
+            add(pizz(f*2, BEAT*0.8), t0 + k*BEAT, 0.55*g, pan=-0.12)
+        add(kick(), t0, 0.55); add(kick(), t0 + 2*BEAT, 0.45)
+        add(snap(seed=20+b), t0 + BEAT, 0.85); add(snap(seed=40+b), t0 + 3*BEAT, 0.85)
+    for k in range(8):
+        g = (1.0 if k % 2 == 0 else 0.55) * (1.0 if lively else 0.45)
+        add(shaker(seed=60+k+b*8, tone=1+0.25*(k % 3)), t0 + k*BEAT/2, g, pan=0.3 if k % 2 else -0.3)
+
+# glockenspiel 16th sparkle from bar 4 on
+for b in range(4, NB):
+    t0 = b*BAR
+    if t0 > 19.0: break
+    c = chord(b)
+    seq = [c[2]+12, c[3]+12, c[2]+24, c[3]+12, c[1]+24, c[3]+12, c[2]+24, c[3]+24]
+    for k, n in enumerate(seq):
+        add(glock(midi(n), 0.7), t0 + k*BEAT/2, 0.30 if k % 2 == 0 else 0.19,
+            pan=-0.4 + 0.8*((k % 4)/3))
+
+# music-box melody
+MEL = [  # (bar, beat, midi, dur beats)
+ (0,0,76,1),(0,1,79,1),(0,2,81,1),(0,3,79,1),
+ (1,0,74,1.5),(1,2,71,1),(1,3,74,1),
+ (2,0,72,1),(2,1,76,1),(2,2,74,1),(2,3,72,1),
+ (3,0,69,2),(3,2,72,2),
+ (4,0,76,1),(4,1,79,1),(4,2,84,1.5),(4,3.5,83,0.5),
+ (5,0,81,1.5),(5,2,79,1),(5,3,76,1),
+ (6,0,77,1),(6,1,81,1),(6,2,79,1),(6,3,77,1),
+ (7,0,74,2),(7,2,79,2),
+ (8,0,76,1),(8,1,79,1),(8,2,81,1),(8,3,84,1),
+ (9,0,83,1.5),(9,2,79,1),(9,3,81,1),
+]
+for (b, be, n, dl) in MEL:
+    t0 = b*BAR + be*BEAT
+    if t0 >= 19.2: continue
+    add(music_box(midi(n), max(0.9, dl*BEAT + 1.0)), t0, 0.95, pan=0.10)
+    add(music_box(midi(n-12), max(0.8, dl*BEAT + 0.7)), t0, 0.28, pan=-0.14)
+
+# ---------- picture-cut accents ----------
+CUTS = [2.70, 5.40, 7.80, 10.20, 12.40, 14.80, 16.80]
+for i, c in enumerate(CUTS):
+    add(whoosh(0.5, seed=30+i, up=True), c-0.36, 0.55, pan=-0.25 if i % 2 else 0.25)
+    for (dt, f, g) in chime_cluster(84 + (i % 3)*2, n=3, seed=50+i, spread=0.055, gain=0.5):
+        add(glock(f, 1.0), c + dt, g, pan=0.2)
+
+# jump / bounce pops
+for t0 in (0.60, 12.75, 13.65, 14.55):
+    add(pizz(midi(88), 0.24), t0, 0.5, pan=0.1)
+    add(pizz(midi(93), 0.20), t0 + 0.055, 0.35, pan=-0.1)
+
+# ---------- the reveal ----------
+add(riser(1.9, seed=13), 17.30, 0.60)
+for (dt, f, g) in harp_run(72, n=12, step=0.042, up=True, gain=0.6):
+    add(glock(f, 1.2), 18.72 + dt, g*0.8, pan=-0.35 + dt*4)
+for (dt, f, g) in chime_cluster(84, n=8, seed=77, spread=0.062, gain=0.9):
+    add(glock(f, 2.0), 19.30 + dt, g*0.75, pan=0.1)
+add(whoosh(1.2, seed=91, up=False), 19.34, 0.35)
+
+# closing bells: C major, then a warm resolve
+CLOSE = [(19.55, [72, 76, 79]), (20.50, [74, 77, 81]), (21.45, [72, 76, 84]), (22.60, [67, 72, 76, 79])]
+for (t0, notes) in CLOSE:
+    for j, n in enumerate(notes):
+        add(music_box(midi(n), 2.6), t0 + j*0.07, 0.85, pan=-0.2 + j*0.16)
+        add(glock(midi(n+12), 1.6), t0 + j*0.07 + 0.02, 0.22, pan=0.2 - j*0.14)
+add(pad([midi(x) for x in [60, 64, 67, 72]], 4.9), 19.35, 0.85)
+for i, t0 in enumerate([19.9, 20.7, 21.6, 22.5, 23.2]):
+    add(glock(midi([88, 91, 84, 93, 88][i]), 1.6), t0, 0.26, pan=[-0.3, 0.3, -0.15, 0.25, 0][i])
+
+# ---------- space + master ----------
+def reverb(x, wet=0.24, dur=1.5, seed=5):
+    n = int(dur*SR)
+    ir = np.random.RandomState(seed).randn(n) * np.exp(-np.arange(n)/(0.36*SR))
+    ir[0] = 1.0; ir /= np.abs(ir).sum()/3.2
+    L2 = 1 << int(np.ceil(np.log2(len(x) + n)))
+    y = np.fft.irfft(np.fft.rfft(x, L2) * np.fft.rfft(ir, L2), L2)[:len(x)]
+    return (1-wet)*x + wet*y
+
+L = reverb(L, 0.24, 1.5, 5); R = reverb(R, 0.24, 1.5, 6)
+fade = np.ones(N); k = int(1.1*SR)
+fade[-k:] = np.linspace(1, 0, k)**1.5
+fi = int(0.05*SR); fade[:fi] *= np.linspace(0, 1, fi)
+L *= fade; R *= fade
+mx = max(np.abs(L).max(), np.abs(R).max())
+L = np.tanh(L/mx*1.22)*0.84; R = np.tanh(R/mx*1.22)*0.84
+
+out = np.empty(N*2, dtype=np.int16)
+out[0::2] = np.clip(L, -1, 1)*32000
+out[1::2] = np.clip(R, -1, 1)*32000
 path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'score.wav')
 w = wave.open(path, 'wb'); w.setnchannels(2); w.setsampwidth(2); w.setframerate(SR)
 w.writeframes(out.tobytes()); w.close()
-print('wrote', path, round(DUR, 2), 's')
+print('wrote', path)
