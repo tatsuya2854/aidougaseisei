@@ -10,13 +10,14 @@ const H0 = 3.35;   // world height; poses are narrower without the pom-poms
 
 /* per-pose size trim, so the body reads the same when the arms move */
 export const POSES = {
-  stand:   { url: '/assets/poses/cut/stand.png',   k: 0.92 },
-  jump:    { url: '/assets/poses/cut/jump.png',    k: 1.00 },
-  reach:   { url: '/assets/poses/cut/reach.png',   k: 0.96 },
-  sit:     { url: '/assets/poses/cut/sit.png',     k: 0.80 },
-  present: { url: '/assets/poses/cut/present.png', k: 1.02 },
-  wave:    { url: '/assets/poses/cut/wave.png',    k: 0.96 },
-  hold2:   { url: '/assets/poses/cut/hold2.png',   k: 0.92 }
+  stand:   { url: '/assets/poses/cut/stand.png',   k: 0.920 },
+  jump:    { url: '/assets/poses/cut/jump.png',    k: 0.923 },
+  reach:   { url: '/assets/poses/cut/reach.png',   k: 0.929 },
+  sit:     { url: '/assets/poses/cut/sit.png',     k: 0.850 },
+  present: { url: '/assets/poses/cut/present.png', k: 0.984 },
+  wave:    { url: '/assets/poses/cut/wave.png',    k: 0.958 },
+  hold2:   { url: '/assets/poses/cut/hold2.png',   k: 0.976 },
+  shy:     { url: '/assets/poses/cut/shy.png',     k: 0.986 }
 };
 
 export async function loadCharacterPlate() {
