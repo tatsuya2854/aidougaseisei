@@ -45,9 +45,12 @@ NEGATIVE = ("open eyes, realistic eyes, pupils, irises, changed facial expressio
 # Published per-second rates, Sep 2026. Verify against the current pricing page
 # before a big run: these move, and they are the whole basis of the estimate.
 RATES = {
-  'veo-3.1-lite-generate-preview': (0.03, 0.05),
+  'veo-3.1-lite-generate-preview': (0.03, 0.05),   # Gemini API ids
   'veo-3.1-fast-generate-preview': (0.15, 0.15),
   'veo-3.1-generate-preview':      (0.40, 0.40),
+  'veo-3.1-lite-generate-001':     (0.03, 0.05),   # Vertex ids
+  'veo-3.1-fast-generate-001':     (0.15, 0.15),
+  'veo-3.1-generate-001':          (0.40, 0.40),
 }
 CLIP_SECONDS = 8            # Veo returns a fixed-length clip; we trim it afterwards
 
@@ -84,7 +87,7 @@ def access_token():
     sys.exit("no access token. In Cloud Shell run `gcloud auth print-access-token`\n"
              "and put it in %s (it expires in about an hour)." % TOKENFILE)
 
-def vcall(url, payload, token, timeout=120):
+def vcall(url, payload, token, timeout=120, _tries=0):
     req = urllib.request.Request(url, data=json.dumps(payload).encode(), method='POST',
                                  headers={'Content-Type': 'application/json',
                                           'Authorization': 'Bearer ' + token})
@@ -93,6 +96,14 @@ def vcall(url, payload, token, timeout=120):
             return json.loads(r.read().decode())
     except urllib.error.HTTPError as e:
         body = e.read().decode(errors='replace')
+        if e.code == 400 and _tries < 5 and 'parameters' in payload:
+            import re as _re
+            m = _re.search(r"[`'\"]([A-Za-z]+)[`'\"][^.]{0,60}(not supported|isn't supported|Unknown|unknown)", body)
+            bad = m.group(1) if m else None
+            if bad and bad in payload['parameters']:
+                payload['parameters'].pop(bad)
+                print("   (model rejects `%s`, dropping it and retrying)" % bad)
+                return vcall(url, payload, token, timeout, _tries + 1)
         if e.code in (401, 403):
             raise SystemExit("HTTP %s from Vertex.\n%s\n"
                              "The token may have expired (they last about an hour) or the\n"
@@ -183,7 +194,7 @@ def main():
         return
 
     if a.model == 'auto' and a.vertex:
-        a.model = 'veo-3.1-lite-generate-preview'
+        a.model = 'veo-3.1-lite-generate-001'   # Vertex uses -001, the Gemini API uses -preview
         print("model: %s (Vertex default; override with --model)" % a.model)
     elif a.model == 'auto' and not a.dry_run:
         _, veo = veo_models()

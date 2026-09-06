@@ -4,5 +4,8 @@ node_modules/
 *.log
 handoff/.work/
 handoff/clips/
+handoff/clips_lite/
+handoff/logs/
+handoff/__pycache__/
 out/handoff_kit.zip
 out/chenme_halloween_promo_ai.mp4
