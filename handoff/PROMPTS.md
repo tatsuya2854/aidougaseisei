@@ -58,7 +58,43 @@ high contrast, motion blur on the face
 
 ---
 
-## 2. サービス別の設定
+## 2. Veoだけは、この環境から直接生成できる
+
+通信ポリシーを実測したところ結果が割れました。
+
+| ホスト | 結果 |
+|---|---|
+| `api.dev.runwayml.com` | **403（組織の通信ポリシーで拒否）** — キーがあっても、この環境からは叩けない |
+| `generativelanguage.googleapis.com` | **到達可能** — Google本体から「APIキーを付けろ」という正規のエラーが返る |
+
+つまり **Veo（Gemini API経由）は、APIキーさえあれば環境の作り直しなしで自動生成できます。**
+そのためのクライアントを同梱してあります。
+
+```bash
+export GEMINI_API_KEY=...                          # チャットに貼らず環境変数で渡す
+python3 handoff/veo_generate.py --list-models      # 課金なし。キーがVeoに届くか確認
+python3 handoff/veo_generate.py --dry-run          # 送信内容だけ表示
+python3 handoff/veo_generate.py --shots 8          # 1カットだけ試す
+python3 handoff/veo_generate.py                    # 8カットまとめて
+./handoff/assemble.sh                              # 24秒に組み直す
+```
+
+- 生成物は `handoff/clips/0X.mp4` に落ち、`assemble.sh` がそのまま拾います。
+- カット9（商品カット）は対象外。パッケージの文字を守るためです。
+- **Veoは有料ティアのキーが必要**です。まず `--list-models` を叩くとキーがVeoに届くか
+  無課金で確認できます（Veoが1つも出なければ無料ティアです）。
+- Veoは音も生成しますが `assemble.sh` が捨てて `audio/score.wav` を乗せます。
+  余計に課金したくなければ `--no-audio` を付けてください（モデルによっては弾かれます）。
+- `--last-frame` を付けると終了プレートも送ります。対応モデルなら動きの制御が効きます。
+
+Runwayを本線にしたい場合は、`api.dev.runwayml.com` を環境の通信許可リストに
+追加してもらう必要があります（環境作成時の設定 →
+[docs](https://code.claude.com/docs/en/claude-code-on-the-web)）。
+プロキシのREADMEにも「403は回避せず報告しろ」と明記されているので、こちらでは迂回しません。
+
+---
+
+## 3. サービス別の設定
 
 ### Runway（Gen-4 / Gen-4 Turbo, image-to-video）
 - **Start frame** に `*_start.png`、**End frame** に `*_end.png` を両方入れる（First/Last Frame）。
@@ -74,7 +110,7 @@ high contrast, motion blur on the face
 
 ---
 
-## 3. 組み直し
+## 4. 組み直し
 
 生成したクリップを `handoff/clips/` に `01.mp4` 〜 `08.mp4` の名前で置いて：
 
@@ -92,7 +128,7 @@ BGMは1小節1.92秒（125BPM）でカット点にチャイムを置いてある
 
 ---
 
-## 4. 先に知っておいた方がいいこと
+## 5. 先に知っておいた方がいいこと
 
 生成AIを通すと、たぶんこの辺が崩れます。許容できるか先に決めておくといいです。
 
