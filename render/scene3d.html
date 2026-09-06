@@ -20,9 +20,11 @@ img{display:block}
 <script type="importmap">{"imports":{"three":"/node_modules/three/build/three.module.js","three/addons/":"/node_modules/three/examples/jsm/"}}</script>
 <script type="module">
 import * as THREE from 'three';
-import { buildCharacter, poseCharacter, loadCharacterPlate, faceCamera, setPose } from './lib/charplate.js';
+import { buildCharacter, poseCharacter, loadCharacterPlate, faceCamera, setPose, poseAt } from './lib/charplate.js';
 import * as P from './lib/props.js';
 import * as LK from './lib/look.js';
+import { makeBottle, bottleEnv, H as BOTTLE_H } from './lib/bottle3d.js';
+import * as RV from './lib/reveal.js';
 
 const W=1080,H=1920,DUR=24.0;
 // ?clean=1 -> no captions, no cut flash: plates for image-to-video hand-off
@@ -199,6 +201,32 @@ for(let i=0;i<6;i++){
   bats.push({s:b,y:9+(i*3.1)%8,z:-10-(i*4.3)%18,ph:i*1.7,sp:2.0+(i%4)*0.5,x0:(i*7.3)%30-15});
 }
 
+/* landing dust */
+const dustTex=LK.cv(512,256,(g)=>{
+  let s=5; const rn=()=>{s=(s*1103515245+12345)&0x7fffffff;return s/0x7fffffff;};
+  g.fillStyle='rgba(252,242,255,0.92)';
+  for(let i=0;i<26;i++){
+    const u=i/25, x=40+u*432, y=214-Math.pow(Math.sin(u*Math.PI),0.8)*118*(0.5+rn()*0.6);
+    g.beginPath(); g.arc(x,y,16+rn()*40*Math.sin(u*Math.PI),0,7); g.fill();
+  }
+  g.globalCompositeOperation='destination-in';
+  const gr=g.createLinearGradient(0,0,0,256);
+  gr.addColorStop(0,'rgba(0,0,0,0.10)'); gr.addColorStop(0.55,'rgba(0,0,0,0.95)');
+  gr.addColorStop(1,'rgba(0,0,0,0.30)');
+  g.fillStyle=gr; g.fillRect(0,0,512,256);
+  const gx=g.createLinearGradient(0,0,512,0);
+  gx.addColorStop(0,'rgba(0,0,0,0)'); gx.addColorStop(0.16,'rgba(0,0,0,1)');
+  gx.addColorStop(0.84,'rgba(0,0,0,1)'); gx.addColorStop(1,'rgba(0,0,0,0)');
+  g.fillStyle=gx; g.fillRect(0,0,512,256);
+  g.globalCompositeOperation='source-over';
+});
+const dust=[];
+for(let i=0;i<3;i++){
+  const m=new THREE.Mesh(new THREE.PlaneGeometry(1,1),
+    new THREE.MeshBasicMaterial({map:dustTex,transparent:true,depthWrite:false,fog:false,opacity:0}));
+  m.visible=false; world.add(m); dust.push(m);
+}
+
 /* studio (product cut) */
 (function(){
   const g=new THREE.Mesh(new THREE.PlaneGeometry(160,160),
@@ -217,16 +245,15 @@ let char=null, heldBottle=null, propBottle=null, bottleGlow=null;
 const ready=(async function(){
   const poses=await loadCharacterPlate();
   char=buildCharacter(poses); scene.add(char);
-  const btex=await new Promise(r=>new THREE.TextureLoader().load('/assets/build/plate_hall.png',
-    t=>{t.colorSpace=THREE.SRGBColorSpace;t.anisotropy=8;r(t);}));
-  const mk=(h)=>{const w=h*583/1193;
-    return new THREE.Mesh(new THREE.PlaneGeometry(w,h),
-      new THREE.MeshBasicMaterial({map:btex,transparent:true,depthWrite:false,fog:false}));};
-  heldBottle=mk(1.70); heldBottle.position.set(0.30,-0.30,0.25);
-  char.userData.hands[1].add(heldBottle); heldBottle.visible=false;
+  const labelTex=await new Promise(r=>new THREE.TextureLoader().load('/assets/build/label_hall.png',
+    t=>{t.colorSpace=THREE.SRGBColorSpace;t.anisotropy=16;r(t);}));
+  const bEnv=bottleEnv(renderer,false);
   propBottle=new THREE.Group(); scene.add(propBottle);
-  const pb=mk(1.55); propBottle.add(pb);
-  bottleGlow=P.glowSprite(0xFFE1B0,3.6,0); bottleGlow.position.z=-0.2; propBottle.add(bottleGlow);
+  const pb=makeBottle(labelTex,bEnv,{envI:1.45});
+  const bs=1.55/BOTTLE_H; pb.scale.setScalar(bs); pb.position.y=-1.55/2;
+  propBottle.add(pb);
+  bottleGlow=P.glowSprite(0xFFE1B0,3.6,0); bottleGlow.position.z=-0.30;
+  bottleGlow.renderOrder=-1; propBottle.add(bottleGlow);
   buildUI();
   window.__DUR=DUR; window.render(0); window.__dbg={camera:camera,char:char,scene:scene}; window.__ready=true;
 })();
@@ -269,13 +296,17 @@ function buildUI(){
     'background:linear-gradient(90deg,rgba(255,143,192,0),#FFA9CE,#C9A8FF,rgba(201,168,255,0))',pc);
   UI.pcFoot=el('div','position:absolute;left:0;top:1748px;width:1080px;text-align:center;font-weight:900;'+
     'font-size:46px;color:#6B5B86;letter-spacing:.10em;opacity:0',pc,'HAPPY HALLOWEEN');
+  UI.fxB=el('canvas','position:absolute;left:0;top:0;width:1080px;height:1920px',pc);
+  UI.fxB.width=1080; UI.fxB.height=1920; UI.gB=UI.fxB.getContext('2d');
   const BW=520, BH=BW*1193/583;
   UI.bwrap=el('div','position:absolute;left:'+((1080-BW)/2)+'px;top:589px;width:'+BW+'px;height:'+BH+'px;'+
     'transform-origin:50% 50%',pc);
   UI.bHall=el('img','position:absolute;left:0;top:0;width:'+BW+'px',UI.bwrap);
-  UI.bHall.src='/assets/build/plate_hall_white.png';
+  UI.bHall.src='/assets/build/plate_hall3d.png';
   UI.bProd=el('img','position:absolute;left:0;top:0;width:'+BW+'px;opacity:0',UI.bwrap);
   UI.bProd.src='/assets/build/plate_prod.png';
+  UI.fxF=el('canvas','position:absolute;left:0;top:0;width:1080px;height:1920px',pc);
+  UI.fxF.width=1080; UI.fxF.height=1920; UI.gF=UI.fxF.getContext('2d');
   UI.flash=el('div','',stage,'','ov'); UI.flash.id='flash';
 }
 
@@ -300,73 +331,183 @@ function updateWorld(t){
     if(g) g.material.opacity=0.5+0.18*Math.sin(t*3.1+i);}
 }
 
-function animChar(t,si){
-  const s=SH[si], u=(t-s.t0)/(s.t1-s.t0), lt=t-s.t0;
-  let pos={x:0,y:0,z:-8}, ry=0, pose={t:t};
-  char.scale.setScalar(1);
+/* ------------------------------------------------------------------
+   Animation. charXform is a pure function of time, so the secondary
+   motion (head lag, arc, shear, wobble) is derived by sampling it
+   either side of the frame instead of being hand-keyed per shot.
+   ------------------------------------------------------------------ */
+
+// one bounce: crouch, snap into the air, land hard, wobble it off
+function bounce(u,h){
+  const A=0.22,B=0.84;
+  if(u<A){ const k=u/A; return {y:0,sq:-0.30*k*k,air:0,land:0}; }
+  if(u<B){ const p=(u-A)/(B-A);
+    return {y:h*4*p*(1-p), sq:0.24*Math.abs(2*p-1)-0.02, air:1, land:0}; }
+  const k=(u-B)/(1-B);
+  return {y:0, sq:-0.36*Math.exp(-k*4.2)*Math.cos(k*9.0), air:0, land:1-k};
+}
+function hops(lt,t0,per,h){
+  if(lt<t0) return {y:0,sq:0,air:0,land:0,n:-1};
+  const n=Math.floor((lt-t0)/per), u=((lt-t0)%per)/per;
+  const b=bounce(u,h); b.n=n; b.u=u; return b;
+}
+
+const POSE_KEYS=[
+  [[0.00,'jump'],[0.62,'stand'],[0.94,'jump'],[1.28,'stand'],[1.56,'jump'],
+   [1.90,'stand'],[2.18,'jump'],[2.52,'stand']],
+  [[2.70,'wave'],[3.02,'stand'],[3.34,'wave'],[3.66,'stand'],[3.98,'wave'],
+   [4.30,'stand'],[4.62,'wave'],[4.94,'stand'],[5.20,'wave']],
+  [[5.40,'sit']],
+  [[7.80,'stand'],[8.18,'reach'],[9.55,'hold2']],
+  [[10.20,'hold2'],[11.22,'shy']],
+  [[12.40,'jump'],[13.06,'stand'],[13.24,'jump'],[13.86,'stand'],[14.04,'jump'],[14.66,'stand']],
+  [[14.80,'shy'],[15.86,'stand'],[16.06,'shy']],
+  [[16.80,'hold2'],[17.18,'present']],
+  [[19.40,'stand'],[20.90,'wave'],[22.30,'stand']]
+];
+
+// landing beats, for dust and a camera kick
+const LANDINGS=[
+  {t:0.60,x:0.0,z:-8.0,p:1.00},{t:1.14,x:0.0,z:-8.0,p:0.42},
+  {t:1.76,x:0.0,z:-8.0,p:0.38},{t:2.38,x:0.0,z:-8.0,p:0.34},
+  {t:13.06,x:0.0,z:-14.4,p:0.70},{t:13.86,x:0.0,z:-14.4,p:0.70},{t:14.66,x:0.0,z:-14.4,p:0.62}
+];
+
+function charXform(t,si){
+  const s=SH[si], u=clamp((t-s.t0)/(s.t1-s.t0)), lt=t-s.t0;
+  const o={x:0,y:0,z:-8,ry:0,sq:0,lean:0,tip:0,wobA:0,wobP:0,sc:1};
   if(si===0){
-    const drop=pr(lt,0.05,0.62), land=pr(lt,0.58,0.98);
-    const idle=Math.max(0,lt-0.88), hop=Math.abs(Math.sin(idle*Math.PI/0.60));
-    pos={x:0,y:lerp(9.5,0,eOut4(drop))+(drop>=1?hop*0.60:0),z:-8.0}; ry=0.08;
-    pose=Object.assign(pose,{pose:'jump',squash:drop<1?0.28:lerp(-0.52,0,eOut(land))+hop*0.28,
-      lean:-0.08+0.05*Math.sin(idle*3.0),headTilt:-0.11,
-      armSpread:1.02+0.20*Math.sin(idle*5.2),legTuck:drop<1?0.9:clamp(hop*1.1),armFwd:-0.10});
+    // drop in under gravity, land hard, then hop
+    const fall=pr(lt,0.06,0.60);
+    const h=hops(lt,0.72,0.62,0.62);
+    o.x=0; o.z=-8.0; o.ry=0.07;
+    o.y=(fall<1? 9.6*(1-fall*fall) : h.y);
+    if(fall<1){ o.sq=0.30; o.lean=-0.04; }
+    else if(lt<0.72){ const k=pr(lt,0.60,0.72);
+      o.sq=-0.46*Math.exp(-k*3.6)*Math.cos(k*8.4);
+      o.wobA=0.075*Math.exp(-k*3.0)*Math.sin(k*13.0); }
+    else { o.sq=h.sq; o.wobA=0.045*h.land*Math.sin((1-h.land)*11); }
+    o.lean+=-0.06+0.05*Math.sin(Math.max(0,lt-0.7)*3.0);
   } else if(si===1){
-    pos={x:lerp(0.6,-0.15,u),y:0,z:lerp(-19.0,-9.2,eIO(u))}; ry=0.05;
-    const run=lt*7.2; pos.y=Math.abs(Math.sin(run))*0.28;
-    pose=Object.assign(pose,{pose:'wave',squash:0.09*Math.sin(run*2),lean:-0.06,pitch:0.09,headTilt:-0.09,
-      armSwing:0.30*Math.sin(run),legSwing:0.60*Math.sin(run),armSpread:0.80});
+    // run at camera: forward lean, step bob, weight shifting side to side
+    const e=eIO(u), run=lt*6.4;
+    o.x=lerp(0.75,-0.18,e)+Math.sin(run*0.5)*0.10;
+    o.z=lerp(-19.2,-9.0,e);
+    o.y=Math.abs(Math.sin(run))*0.30;
+    o.sq=-0.16*Math.pow(Math.abs(Math.cos(run)),3)+0.10*Math.abs(Math.sin(run));
+    o.lean=-0.13+0.05*Math.sin(run); o.ry=0.05;
   } else if(si===2){
-    pos={x:-0.60,y:0,z:-11.9}; ry=0.40;
-    const b=Math.abs(Math.sin(lt*Math.PI/0.80)); pos.y=b*0.28;
-    pose=Object.assign(pose,{pose:'sit',squash:-0.09+b*0.20,lean:-0.10,headTilt:-0.15,headYaw:0.18,
-      armSpread:0.90+0.15*Math.sin(lt*3.4)});
+    // settled by the pumpkin, breathing and swaying
+    o.x=-0.60; o.z=-11.9; o.ry=0.40;
+    const b=Math.abs(Math.sin(lt*Math.PI/0.86));
+    o.y=b*0.20; o.sq=-0.07+b*0.17;
+    o.lean=-0.09+0.05*Math.sin(lt*1.5);
+    o.tip=0.07*Math.sin(lt*1.15+0.6);
   } else if(si===3){
-    pos={x:5.45,y:0,z:-7.45}; ry=-0.22;
-    const b=Math.abs(Math.sin(lt*Math.PI/0.9)); pos.y=b*0.15;
-    pose=Object.assign(pose,{pose:'reach',lean:-0.13,headTilt:-0.17,headYaw:-0.14,headPitch:0.24,
-      armLA:-0.30,armRA:1.30,armRX:-0.48,squash:-0.05+b*0.11});
+    // steps up to the doorstep, then a double take at the bottle
+    const walk=eIO(pr(lt,0.00,0.60));
+    o.x=lerp(5.95,5.42,walk); o.z=lerp(-8.15,-7.45,walk); o.ry=-0.22;
+    const b=Math.abs(Math.sin(lt*Math.PI/0.82));
+    o.y=b*0.15; o.sq=-0.05+b*0.13;
+    const dt1=pr(lt,0.52,0.70), dt2=pr(lt,0.70,0.98);   // pull back, snap in
+    o.lean=-0.10-0.13*dt1+0.30*dt2*(1-pr(lt,1.10,1.55));
+    o.tip=0.16*dt1-0.26*dt2+0.05*Math.sin(lt*1.9);
   } else if(si===4){
-    pos={x:4.95,y:0,z:-6.90}; ry=-0.24;
-    const reach=eIO(pr(lt,0.35,1.35));
-    pose=Object.assign(pose,{pose:'hold2',lean:-0.10,headTilt:-0.15,headYaw:-0.18,headPitch:0.28,
-      armLA:-0.26,armRA:lerp(1.0,1.62,reach),armRX:lerp(-0.25,-0.95,reach),squash:0.05*Math.sin(lt*3)});
+    o.x=4.95; o.z=-6.90; o.ry=-0.24;
+    const b=Math.abs(Math.sin(lt*Math.PI/0.94));
+    o.y=b*0.13; o.sq=-0.05+b*0.12;
+    o.lean=-0.08+0.05*Math.sin(lt*1.6);
+    o.tip=-0.10+0.09*Math.sin(lt*1.25);
   } else if(si===5){
-    pos={x:0,y:0,z:-14.4}; ry=0.0;
-    const cyc=(lt%0.92)/0.92, air=Math.sin(cyc*Math.PI); pos.y=air*1.80;
-    pose=Object.assign(pose,{pose:'jump',squash:lerp(-0.40,0.30,clamp(air*1.6)),lean:-0.09+0.06*Math.sin(lt*2.4),
-      headTilt:-0.13,armSpread:1.14+0.22*air,armFwd:-0.18*air,legTuck:air*0.85});
+    // trick or treat: three big jumps
+    const h=hops(lt,0.10,0.80,1.95);
+    o.x=Math.sin(lt*1.4)*0.22; o.z=-14.4; o.ry=0.02+0.10*Math.sin(lt*1.4);
+    o.y=h.y; o.sq=h.sq;
+    o.wobA=0.05*h.land*Math.sin((1-h.land)*11);
+    o.lean=-0.08+0.07*Math.sin(lt*2.6);
   } else if(si===6){
-    pos={x:0.02,y:0,z:-13.2}; ry=0.10;
-    const b=Math.abs(Math.sin(lt*Math.PI/0.84)); pos.y=b*0.20;
-    pose=Object.assign(pose,{pose:'shy',squash:-0.08+b*0.17,lean:-0.10,headTilt:-0.14,
-      armSpread:0.98+0.18*Math.sin(lt*3.8)});
+    // bashful: sway, one small shy hop, settle
+    const b=Math.abs(Math.sin(lt*Math.PI/0.92));
+    const h=hops(lt,1.00,0.46,0.32);
+    o.x=0.02+0.10*Math.sin(lt*1.1); o.z=-13.2; o.ry=0.10+0.07*Math.sin(lt*0.9);
+    o.y=b*0.16+(lt>1.0&&lt<1.46?h.y:0);
+    o.sq=-0.07+b*0.15;
+    o.lean=-0.10+0.06*Math.sin(lt*1.35);
+    o.tip=0.10*Math.sin(lt*1.05+1.1);
   } else if(si===7){
-    pos={x:HERO_X-0.62,y:HERO_TOP,z:HERO_Z+0.55}; ry=0.04;
-    const b=Math.abs(Math.sin(lt*Math.PI/0.90)); pos.y+=b*0.16;
-    const raise=eOut(pr(lt,0.25,1.15));
-    const armR=lerp(1.0,2.48,raise);
-    if(heldBottle) heldBottle.rotation.z=-armR+0.12;   // keep the package upright
-    pose=Object.assign(pose,{pose:'present',squash:-0.06+b*0.14,lean:-0.06,headTilt:-0.09,
-      armLA:-0.66,armLX:0.10,armRA:armR,armRX:-0.16,hidePomR:true});
+    const b=Math.abs(Math.sin(lt*Math.PI/0.96));
+    const anti=pr(lt,0.16,0.34), rise=eBack(pr(lt,0.34,1.05));
+    o.x=HERO_X-0.62; o.z=HERO_Z+0.55; o.ry=0.04;
+    o.y=HERO_TOP+b*0.14;
+    o.sq=-0.22*anti*(1-rise)+0.20*rise*(1-pr(lt,1.05,1.45))+b*0.10;
+    o.lean=-0.05+0.05*Math.sin(lt*1.5);
+    o.tip=0.12*anti-0.10*rise+0.05*Math.sin(lt*1.2);
   } else {
-    pos={x:-1.285,y:0,z:1.2}; ry=0.24;
     const app=pr(t,20.05,20.75), idle=Math.max(0,t-19.9);
-    const b=Math.abs(Math.sin(idle*Math.PI/0.86));
-    pos.y=b*0.20*0.28; pos.x=lerp(-2.34,-1.285,eBack(app));
-    char.scale.setScalar(0.28);
-    pose=Object.assign(pose,{pose:'stand',squash:-0.08+b*0.18,lean:-0.10,headTilt:-0.14,
-      armSpread:0.44+0.13*Math.sin(idle*3.4),armFwd:-0.42});
+    const b=Math.abs(Math.sin(idle*Math.PI/0.88));
+    o.x=lerp(-2.34,-1.285,eBack(app)); o.z=1.2; o.ry=0.24;
+    o.y=b*0.055; o.sq=-0.07+b*0.16;
+    o.lean=-0.09+0.05*Math.sin(idle*1.7);
+    o.tip=0.07*Math.sin(idle*1.3);
+    o.sc=0.28;
   }
-  char.position.set(pos.x,pos.y,pos.z);
-  char.rotation.y=ry;
+  return o;
+}
+
+function animChar(t,si){
+  const s=SH[si], lt=t-s.t0;
+  const c=charXform(t,si);
+  // sample either side, inside the shot, for velocity and acceleration
+  const d=0.045;
+  const ta=Math.max(s.t0+0.002,t-d), tb=Math.min(s.t1-0.002,t+d);
+  const A=charXform(ta,si), B=charXform(tb,si), span=Math.max(1e-3,tb-ta);
+  const vx=(B.x-A.x)/span, vy=(B.y-A.y)/span;
+  const ax=((B.x-c.x)-(c.x-A.x))/(span*span*0.25);
+
+  const kk=(v,lim)=>Math.max(-lim,Math.min(lim,v));
+  const lag=kk(-vx*0.055-ax*0.0016,0.20);
+  const skew=kk(-vx*0.022,0.10);
+  const tip=c.tip+kk(-ax*0.0022,0.20)+kk(-vy*0.010,0.10);
+  const bend=kk(c.lean*0.55-vx*0.018,0.24);
+
+  const pk=poseAt(t,POSE_KEYS[si]);
+  const pose={t:t,pose:pk.a,pose2:pk.b,poseW:pk.w,
+    squash:c.sq, lean:c.lean, bend:bend, lag:lag, skew:skew, headTip:tip,
+    wobA:c.wobA, wobP:t*9.0, breathe:0.022*Math.sin(t*2.35+si)};
+
+  char.position.set(c.x,c.y,c.z);
+  char.rotation.y=c.ry;
+  char.scale.setScalar(c.sc);
   poseCharacter(char,pose);
-  if(heldBottle) heldBottle.visible=false;
-  rig.key.position.set(pos.x-4.5,pos.y+9,pos.z+8);
-  rig.key.target.position.set(pos.x,pos.y+1.6,pos.z);
+  rig.key.position.set(c.x-4.5,c.y+9,c.z+8);
+  rig.key.target.position.set(c.x,c.y+1.6,c.z);
   rig.key.target.updateMatrixWorld();
 }
 
+function updateDust(t){
+  let k=0;
+  for(const L of LANDINGS){
+    const d=t-L.t;
+    if(d<0||d>0.58||k>=dust.length) continue;
+    const m=dust[k++], u=d/0.58;
+    const sc=lerp(0.9,4.4,eOut(u))*L.p;
+    m.visible=true;
+    m.position.set(L.x,sc*0.20,L.z+0.12);
+    m.rotation.y=Math.atan2(camera.position.x-L.x,camera.position.z-L.z);
+    m.scale.set(sc*1.55,sc*0.80,1);
+    m.material.opacity=Math.pow(1-u,2.0)*0.85*L.p;
+  }
+  for(;k<dust.length;k++) dust[k].visible=false;
+}
+function camShake(t){
+  let a=0;
+  for(const L of LANDINGS){ const d=t-L.t;
+    if(d>=0&&d<0.30) a=Math.max(a,L.p*Math.pow(1-d/0.30,1.8)); }
+  if(a<=0.001) return;
+  camera.position.y+=Math.sin(t*78)*0.075*a;
+  camera.position.x+=Math.sin(t*61+1.3)*0.048*a;
+  camera.updateMatrixWorld();
+}
 function camAt(t,si){
   const s=SH[si], u=clamp((t-s.t0)/(s.t1-s.t0)), e=eIO(u);
   switch(si){
@@ -395,7 +536,9 @@ function updateBottle(t,si){
                             lerp(hp.y-1.5,hp.y+0.42,rise)+Math.sin(t*1.5)*0.03,
                             hp.z+0.12);
     propBottle.scale.setScalar(lerp(0.55,0.92,rise));
-    propBottle.lookAt(camera.position.x,propBottle.position.y,camera.position.z);
+    propBottle.rotation.set(0,Math.atan2(camera.position.x-propBottle.position.x,
+                                         camera.position.z-propBottle.position.z),
+                            lerp(0.34,-0.05,rise));
     const g=rise*(0.22+0.10*Math.sin(t*3.4))+pr(t,18.60,19.15)*1.5;
     bottleGlow.material.opacity=clamp(g); bottleGlow.scale.setScalar(3.6*(0.8+g));
     return;
@@ -403,7 +546,8 @@ function updateBottle(t,si){
   propBottle.scale.setScalar(si===4?lerp(1.0,1.22,eIO(pr(t,10.25,11.60))):1);
   if(on){
     propBottle.position.set(5.22,1.38+Math.sin(t*1.4)*0.03,-5.15);
-    propBottle.lookAt(camera.position.x,propBottle.position.y,camera.position.z);
+    propBottle.rotation.set(0,Math.atan2(camera.position.x-5.22,camera.position.z+5.15)
+                              +0.10*Math.sin(t*0.7),0);
     const g=0.16+0.08*Math.sin(t*3.2)+(si===4?0.14*pr(t,10.9,12.2):0);
     bottleGlow.material.opacity=g; bottleGlow.scale.setScalar(3.6*(0.8+g));
   }
@@ -419,6 +563,16 @@ function beat(o,a,b,c,d,t){
   });
   o.d.style.transform='scale('+lerp(1,1.12,eIn(out)).toFixed(3)+')';
 }
+function reveal(t){
+  const sw=t>=RV.T.swap?1:0;
+  UI.bProd.style.opacity=sw; UI.bHall.style.opacity=1-sw;
+  // the mystery bottle breathes, then the product lands and settles
+  const fl=Math.sin(t*1.9)*0.006;
+  const pop=lerp(1.10,1.0,eOut(clamp((t-RV.T.swap)/0.55)));
+  const sc=t<RV.T.swap ? lerp(1.055,1.0,eIO(pr(t,19.30,20.10)))+fl : pop;
+  UI.bwrap.style.transform='scale('+sc.toFixed(4)+')';
+  RV.drawBack(UI.gB,t); RV.drawFront(UI.gF,t);
+}
 function updateUI(t){
   if(CAPS){
     beat(UI.t1,0.75,1.35,2.35,2.62,t); beat(UI.t2,3.10,3.70,5.05,5.32,t);
@@ -432,8 +586,7 @@ function updateUI(t){
     for(const k of ['t1','t2','t4','t5','t6','t7','t8']) UI[k].d.style.opacity=0;
     UI.vig.style.opacity=0; UI.flash.style.opacity=0;
     UI.pc.style.opacity=pr(t,19.22,19.52).toFixed(3);
-    const sw=pr(t,19.95,20.80);
-    UI.bProd.style.opacity=sw.toFixed(3); UI.bHall.style.opacity=(1-sw).toFixed(3);
+    reveal(t);
     UI.pcTop.style.opacity=0; UI.pcName.style.opacity=0; UI.pcTag.style.opacity=0;
     UI.pcLine.style.opacity=0; UI.pcFoot.style.opacity=0;
     return;
@@ -447,14 +600,11 @@ function updateUI(t){
   beat(UI.t8,17.55,18.10,18.85,19.05,t);
   UI.vig.style.opacity=(1-pr(t,18.85,19.30)).toFixed(3);
   UI.pc.style.opacity=pr(t,19.22,19.52).toFixed(3);
-  const swap=pr(t,19.95,20.80);
-  UI.bProd.style.opacity=swap.toFixed(3);
-  UI.bHall.style.opacity=(1-swap).toFixed(3);
-  UI.bwrap.style.transform='scale('+lerp(1.055,1.0,eIO(pr(t,19.30,20.55))).toFixed(4)+')';
-  UI.pcTop.style.opacity=pr(t,20.85,21.35).toFixed(3);
-  UI.pcTop.style.transform='translateY('+lerp(-24,0,eOut(pr(t,20.85,21.45))).toFixed(1)+'px)';
-  UI.pcName.style.opacity=pr(t,21.00,21.50).toFixed(3);
-  UI.pcName.style.transform='translateY('+lerp(30,0,eOut(pr(t,21.00,21.60))).toFixed(1)+'px)';
+  reveal(t);
+  UI.pcTop.style.opacity=pr(t,20.72,21.22).toFixed(3);
+  UI.pcTop.style.transform='translateY('+lerp(-24,0,eOut(pr(t,20.72,21.32))).toFixed(1)+'px)';
+  UI.pcName.style.opacity=pr(t,20.88,21.38).toFixed(3);
+  UI.pcName.style.transform='translateY('+lerp(30,0,eOut(pr(t,20.88,21.48))).toFixed(1)+'px)';
   UI.pcTag.style.opacity=pr(t,21.30,21.80).toFixed(3);
   UI.pcTag.style.transform='translateY('+lerp(20,0,eOut(pr(t,21.30,21.90))).toFixed(1)+'px)';
   const lw=lerp(0,520,eOut(pr(t,21.45,22.05)));
@@ -465,6 +615,7 @@ function updateUI(t){
   let fl=1-pr(t,0.0,0.32);
   for(const s of SH){ if(s.t0>0.01) fl=Math.max(fl,(1-Math.abs(t-s.t0)/0.13)*0.8); }
   fl=Math.max(fl,pr(t,18.90,19.22)*(1-pr(t,19.30,19.75)));
+  fl=Math.max(fl,(t>=20.195?1:0)*(1-pr(t,20.20,20.40))*0.80);
   UI.flash.style.opacity=clamp(fl).toFixed(3);
 }
 
@@ -498,8 +649,8 @@ window.render=function(t){
     }
     renderer.toneMappingExposure=1.28;
   }
-  if(!CAPS){ updateWorld(t); animChar(t,si); camAt(t,si); faceCamera(char,camera);
-             updateBottle(t,si); renderer.render(scene,camera); }
+  if(!CAPS){ updateWorld(t); updateDust(t); animChar(t,si); camAt(t,si); camShake(t);
+             faceCamera(char,camera); updateBottle(t,si); renderer.render(scene,camera); }
   updateUI(t);
 };
 </script></body></html>

@@ -190,27 +190,38 @@ for i, c in enumerate(CUTS):
         add(glock(f, 1.0), c + dt, g, pan=0.2)
 
 # jump / bounce pops
-for t0 in (0.60, 12.75, 13.65, 14.55):
+for t0 in (0.60, 1.14, 13.06, 13.86, 14.66):
     add(pizz(midi(88), 0.24), t0, 0.5, pan=0.1)
     add(pizz(midi(93), 0.20), t0 + 0.055, 0.35, pan=-0.1)
 
 # ---------- the reveal ----------
-add(riser(1.9, seed=13), 17.30, 0.60)
-for (dt, f, g) in harp_run(72, n=12, step=0.042, up=True, gain=0.6):
-    add(glock(f, 1.2), 18.72 + dt, g*0.8, pan=-0.35 + dt*4)
-for (dt, f, g) in chime_cluster(84, n=8, seed=77, spread=0.062, gain=0.9):
-    add(glock(f, 2.0), 19.30 + dt, g*0.75, pan=0.1)
-add(whoosh(1.2, seed=91, up=False), 19.34, 0.35)
+add(riser(1.3, seed=13), 17.55, 0.40)                       # lifting into the hero shot
+add(whoosh(0.7, seed=91, up=True), 19.06, 0.42)             # cut to the product cut
+
+# magic gathers around the mystery bottle, peaking exactly on the flash
+for (dt, f, g) in harp_run(72, n=12, step=0.040, up=True, gain=0.6):
+    add(glock(f, 1.2), 19.50 + dt, g*0.72, pan=-0.35 + dt*4)
+add(riser(0.95, seed=23), 19.26, 0.62)
+add(riser(0.52, seed=24), 19.70, 0.58)
+add(sub(midi(36), 0.9), 19.88, 0.30)
+
+# the flash: bright cluster, low whump, then the product blooms
+for (dt, f, g) in chime_cluster(84, n=10, seed=77, spread=0.052, gain=1.0):
+    add(glock(f, 2.2), 20.20 + dt, g*0.85, pan=0.1)
+add(whoosh(1.3, seed=92, up=False), 20.18, 0.46)
+add(kick(0.30), 20.20, 0.55)
+add(pizz(midi(88), 0.24), 20.21, 0.42, pan=0.1)
 
 # closing bells: C major, then a warm resolve
-CLOSE = [(19.55, [72, 76, 79]), (20.50, [74, 77, 81]), (21.45, [72, 76, 84]), (22.60, [67, 72, 76, 79])]
+CLOSE = [(20.24, [72, 76, 79]), (21.10, [74, 77, 81]),
+         (22.00, [72, 76, 84]), (22.92, [67, 72, 76, 79])]
 for (t0, notes) in CLOSE:
     for j, n in enumerate(notes):
         add(music_box(midi(n), 2.6), t0 + j*0.07, 0.85, pan=-0.2 + j*0.16)
         add(glock(midi(n+12), 1.6), t0 + j*0.07 + 0.02, 0.22, pan=0.2 - j*0.14)
-add(pad([midi(x) for x in [60, 64, 67, 72]], 4.9), 19.35, 0.85)
-for i, t0 in enumerate([19.9, 20.7, 21.6, 22.5, 23.2]):
-    add(glock(midi([88, 91, 84, 93, 88][i]), 1.6), t0, 0.26, pan=[-0.3, 0.3, -0.15, 0.25, 0][i])
+add(pad([midi(x) for x in [60, 64, 67, 72]], 4.6), 20.16, 0.88)
+for i, t0 in enumerate([20.62, 21.45, 22.25, 23.05, 23.55]):
+    add(glock(midi([88, 91, 84, 93, 88][i]), 1.6), t0, 0.24, pan=[-0.3, 0.3, -0.15, 0.25, 0][i])
 
 # ---------- space + master ----------
 def reverb(x, wet=0.24, dur=1.5, seed=5):

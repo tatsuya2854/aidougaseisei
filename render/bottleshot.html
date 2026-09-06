@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="ja"><head><meta charset="utf-8"><title>bottle plate</title>
+<style>*{margin:0;padding:0}html,body{width:1080px;height:1920px;overflow:hidden;background:transparent}
+canvas{display:block}</style></head>
+<body>
+<script type="importmap">{"imports":{"three":"/node_modules/three/build/three.module.js","three/addons/":"/node_modules/three/examples/jsm/"}}</script>
+<script type="module">
+import * as THREE from 'three';
+import { makeBottle, bottleEnv, studioEnv, H as BH } from './lib/bottle3d.js';
+import * as LK from './lib/look.js';
+
+const W=1080,H=1920;
+const white=location.search.indexOf('white')>=0;
+const renderer=new THREE.WebGLRenderer({antialias:true,alpha:true,preserveDrawingBuffer:true});
+renderer.setSize(W,H); renderer.setPixelRatio(1);
+renderer.outputColorSpace=THREE.SRGBColorSpace;
+renderer.toneMapping=THREE.NoToneMapping;
+renderer.shadowMap.enabled=false;
+document.body.appendChild(renderer.domElement);
+
+const scene=new THREE.Scene();
+if(white) scene.background=new THREE.Color(0xFFFFFF);
+const camera=new THREE.PerspectiveCamera(16,W/H,0.1,100);
+
+const env=studioEnv(renderer);
+const labelTex=await new Promise(r=>new THREE.TextureLoader().load('/assets/build/label_hall.png',
+  t=>{t.colorSpace=THREE.SRGBColorSpace;t.anisotropy=16;r(t);}));
+
+// a bright, neutral product rig so the plate matches the white studio cut
+const amb=new THREE.AmbientLight(0xFFFFFF,0.30); scene.add(amb);
+const hemi=new THREE.HemisphereLight(0xFFFFFF,0xE8E0F2,0.42); scene.add(hemi);
+const key=new THREE.DirectionalLight(0xFFF8F0,2.4); key.position.set(-3.5,7,7); scene.add(key);
+const fill=new THREE.DirectionalLight(0xEFE6FF,0.55); fill.position.set(5,1.5,6); scene.add(fill);
+const rim=new THREE.DirectionalLight(0xFFFFFF,2.2); rim.position.set(3,5,-6); scene.add(rim);
+
+const b=makeBottle(labelTex,env);
+b.position.y=-BH/2; scene.add(b);
+camera.position.set(0,0,BH*1.30/(2*Math.tan(16*Math.PI/360)));
+camera.lookAt(0,0,0);
+
+window.__ready=true;
+window.render=function(){ renderer.render(scene,camera); };
+window.render();
+</script></body></html>
