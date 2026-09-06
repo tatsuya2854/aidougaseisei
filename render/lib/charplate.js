@@ -6,17 +6,17 @@
 import * as THREE from 'three';
 
 export const PAL = { skin: 0xFCD9BE };
-const H0 = 3.07;                      // world height of the reference pose
+const H0 = 3.35;   // world height; poses are narrower without the pom-poms
 
 /* per-pose size trim, so the body reads the same when the arms move */
 export const POSES = {
-  source:  { url: '/assets/build/char_hw.png',       k: 1.00, lift: 0.00 },
-  run:     { url: '/assets/poses/cut/run.png',       k: 0.98, lift: 0.00 },
-  jumpbig: { url: '/assets/poses/cut/jumpbig.png',   k: 1.06, lift: 0.00 },
-  present: { url: '/assets/poses/cut/present.png',   k: 1.02, lift: 0.00 },
-  reach:   { url: '/assets/poses/cut/reach.png',     k: 0.96, lift: 0.00 },
-  sit:     { url: '/assets/poses/cut/sit.png',       k: 0.86, lift: 0.00 },
-  stand:   { url: '/assets/poses/cut/stand.png',     k: 0.92, lift: 0.00 }
+  stand:   { url: '/assets/poses/cut/stand.png',   k: 0.92 },
+  jump:    { url: '/assets/poses/cut/jump.png',    k: 1.00 },
+  reach:   { url: '/assets/poses/cut/reach.png',   k: 0.96 },
+  sit:     { url: '/assets/poses/cut/sit.png',     k: 0.80 },
+  present: { url: '/assets/poses/cut/present.png', k: 1.02 },
+  wave:    { url: '/assets/poses/cut/wave.png',    k: 0.96 },
+  hold2:   { url: '/assets/poses/cut/hold2.png',   k: 0.92 }
 };
 
 export async function loadCharacterPlate() {
@@ -48,7 +48,7 @@ export function buildCharacter(poses) {
   const root = new THREE.Group();
   const body = new THREE.Group(); root.add(body);
   const mat = new THREE.MeshBasicMaterial({
-    map: poses.source.tex, transparent: true, depthWrite: false, fog: false,
+    map: poses.stand.tex, transparent: true, depthWrite: false, fog: false,
     alphaTest: 0.02, side: THREE.DoubleSide
   });
   const plate = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), mat);
@@ -60,19 +60,19 @@ export function buildCharacter(poses) {
   const hand = new THREE.Group(); body.add(hand);
   root.userData = { body, plate, mat, shadow, poses, cur: null, hands: [hand, hand],
                     poms: [], arms: [], legs: [] };
-  setPose(root, 'source');
+  setPose(root, 'stand');
   return root;
 }
 
 export function setPose(root, name) {
   const u = root.userData;
-  const p = u.poses[name] || u.poses.source;
+  const p = u.poses[name] || u.poses.stand;
   if (u.cur === name) return;
   u.cur = name;
   u.mat.map = p.tex; u.mat.needsUpdate = true;
   const h = H0 * p.k, w = h * p.w / p.h;
   u.plate.scale.set(w, h, 1);
-  u.plate.position.y = h / 2 + p.lift;
+  u.plate.position.y = h / 2 + (p.lift || 0);
   u.shadow.scale.set(w * 0.5, w * 0.19, 1);
   // the raised open hand in the "present" pose, for a prop to sit in
   u.hands[0].position.set(w * 0.30, h * 0.72, 0.03);

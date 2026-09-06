@@ -308,13 +308,13 @@ function animChar(t,si){
     const drop=pr(lt,0.05,0.62), land=pr(lt,0.58,0.98);
     const idle=Math.max(0,lt-0.88), hop=Math.abs(Math.sin(idle*Math.PI/0.60));
     pos={x:0,y:lerp(9.5,0,eOut4(drop))+(drop>=1?hop*0.60:0),z:-8.0}; ry=0.08;
-    pose=Object.assign(pose,{pose:'source',squash:drop<1?0.28:lerp(-0.52,0,eOut(land))+hop*0.28,
+    pose=Object.assign(pose,{pose:'jump',squash:drop<1?0.28:lerp(-0.52,0,eOut(land))+hop*0.28,
       lean:-0.08+0.05*Math.sin(idle*3.0),headTilt:-0.11,
       armSpread:1.02+0.20*Math.sin(idle*5.2),legTuck:drop<1?0.9:clamp(hop*1.1),armFwd:-0.10});
   } else if(si===1){
     pos={x:lerp(0.6,-0.15,u),y:0,z:lerp(-19.0,-9.2,eIO(u))}; ry=0.05;
     const run=lt*7.2; pos.y=Math.abs(Math.sin(run))*0.28;
-    pose=Object.assign(pose,{pose:'run',squash:0.09*Math.sin(run*2),lean:-0.06,pitch:0.09,headTilt:-0.09,
+    pose=Object.assign(pose,{pose:'jump',squash:0.09*Math.sin(run*2),lean:-0.06,pitch:0.09,headTilt:-0.09,
       armSwing:0.30*Math.sin(run),legSwing:0.60*Math.sin(run),armSpread:0.80});
   } else if(si===2){
     pos={x:-0.60,y:0,z:-11.9}; ry=0.40;
@@ -329,17 +329,17 @@ function animChar(t,si){
   } else if(si===4){
     pos={x:5.30,y:0,z:-7.05}; ry=-0.30;
     const reach=eIO(pr(lt,0.35,1.35));
-    pose=Object.assign(pose,{pose:'reach',lean:-0.10,headTilt:-0.15,headYaw:-0.18,headPitch:0.28,
+    pose=Object.assign(pose,{pose:'hold2',lean:-0.10,headTilt:-0.15,headYaw:-0.18,headPitch:0.28,
       armLA:-0.26,armRA:lerp(1.0,1.62,reach),armRX:lerp(-0.25,-0.95,reach),squash:0.05*Math.sin(lt*3)});
   } else if(si===5){
     pos={x:0,y:0,z:-14.4}; ry=0.0;
     const cyc=(lt%0.92)/0.92, air=Math.sin(cyc*Math.PI); pos.y=air*1.80;
-    pose=Object.assign(pose,{pose:'jumpbig',squash:lerp(-0.40,0.30,clamp(air*1.6)),lean:-0.09+0.06*Math.sin(lt*2.4),
+    pose=Object.assign(pose,{pose:'jump',squash:lerp(-0.40,0.30,clamp(air*1.6)),lean:-0.09+0.06*Math.sin(lt*2.4),
       headTilt:-0.13,armSpread:1.14+0.22*air,armFwd:-0.18*air,legTuck:air*0.85});
   } else if(si===6){
     pos={x:0.02,y:0,z:-13.2}; ry=0.10;
     const b=Math.abs(Math.sin(lt*Math.PI/0.84)); pos.y=b*0.20;
-    pose=Object.assign(pose,{pose:'stand',squash:-0.08+b*0.17,lean:-0.10,headTilt:-0.14,
+    pose=Object.assign(pose,{pose:'wave',squash:-0.08+b*0.17,lean:-0.10,headTilt:-0.14,
       armSpread:0.98+0.18*Math.sin(lt*3.8)});
   } else if(si===7){
     pos={x:HERO_X,y:HERO_TOP,z:HERO_Z}; ry=0.04;

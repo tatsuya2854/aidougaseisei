@@ -24,17 +24,23 @@ KEEP = (
   "with the black jack-o'-lantern face, the same black-and-white striped sleeves, the same "
   "black shorts with the white cobweb print, the same white sneakers, and the same soft "
   "3D toy-figure shading and proportions. Do not restyle, do not open the eyes, do not "
-  "change any colour. Full body, facing the camera, centred, on a plain flat chroma green "
-  "(#00B140) background with no shadow, no floor and no props other than what is asked."
+  "change any colour. "
+  "REMOVE the pinwheel pom-poms entirely: the character holds nothing at all. Both hands "
+  "are bare, empty, small and rounded in the same toy style, with no object of any kind in "
+  "them and nothing resting against them. "
+  "Full body, facing the camera, centred, on a plain flat bright green screen background "
+  "with no shadow, no floor, no props and absolutely no text, letters, numbers or watermarks."
 )
 
 POSES = {
-  'run':    "Change only the pose: the character is running cheerfully toward the camera, one knee lifted, arms swinging, still holding the two pinwheel pom-poms.",
-  'reach':  "Change only the pose: the character leans forward and reaches one arm down and out toward something on the ground in front of it, head tilted down, the other arm still holding a pinwheel pom-pom.",
-  'stand':  "Change only the pose: the character stands still and upright with both feet on the ground, holding the two pinwheel pom-poms low at its sides.",
-  'present':"Change only the pose: the character stands and raises its right arm high with an open empty hand, palm up, presenting something that is not shown; the left arm holds a pinwheel pom-pom. The raised hand must be empty.",
-  'sit':    "Change only the pose: the character sits with its knees drawn up and both hands resting on its knees, seen from the front.",
-  'jumpbig':"Change only the pose: the character leaps high with both arms thrown up above its head, both pinwheel pom-poms raised, both legs tucked.",
+  'stand':  "Pose: standing upright, both feet on the ground, arms relaxed at its sides, empty hands.",
+  'run':    "Pose: running cheerfully toward the camera, one knee lifted, both arms swinging, empty hands.",
+  'jump':   "Pose: leaping with both arms thrown up above its head, both legs tucked, empty hands.",
+  'reach':  "Pose: leaning forward and reaching one arm down and out toward something on the ground in front of it, head tilted down, the other arm relaxed. Both hands empty.",
+  'present':"Pose: standing, with its right arm stretched straight up high above its head, well above the hood, the open empty palm facing forward as if holding something up for everyone to see; the left arm hangs relaxed at its side. Both hands empty.",
+  'sit':    "Pose: sitting with its knees drawn up and both empty hands resting on its knees, seen from the front.",
+  'wave':   "Pose: standing and waving one raised hand next to its head, the other arm relaxed. Both hands empty.",
+  'hold2':  "Pose: standing with both arms raised in front of its chest, both palms open and facing up side by side, as if about to receive something. Both hands empty.",
 }
 
 def token():
