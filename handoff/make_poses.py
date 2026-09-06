@@ -17,30 +17,43 @@ TOKENFILE = os.path.expanduser('~/.gcp_access_token')
 MODEL = 'gemini-2.5-flash-image'
 
 KEEP = (
-  "Keep the character EXACTLY as in the reference image: the same orange cat-hood "
-  "with stitched ears, the three black bats on the brow, the black floppy tip with the "
-  "candy corn, the same closed crescent squinting eyes with the same thick black brows, "
-  "the same open smile with a pink tongue, the same round pink blush, the same orange top "
-  "with the black jack-o'-lantern face, the same black-and-white striped sleeves, the same "
-  "black shorts with the white cobweb print, the same white sneakers, and the same soft "
-  "3D toy-figure shading and proportions. Do not restyle, do not open the eyes, do not "
-  "change any colour. "
-  "REMOVE the pinwheel pom-poms entirely: the character holds nothing at all. Both hands "
-  "are bare, empty, small and rounded in the same toy style, with no object of any kind in "
-  "them and nothing resting against them. "
-  "Full body, facing the camera, centred, on a plain flat bright green screen background "
-  "with no shadow, no floor, no props and absolutely no text, letters, numbers or watermarks."
+  "Keep the character EXACTLY as in the reference image: the same orange cat-hood with "
+  "stitched ears, the black bats on the brow, the black floppy tip with the candy corn, the "
+  "same orange top with the black jack-o'-lantern face, the same black-and-white striped "
+  "sleeves, the same black shorts with the white cobweb print, the same white sneakers, the "
+  "same skin tone, and the same soft 3D toy-figure shading and proportions. Do not restyle "
+  "and do not change any colour. "
+  "THE EYES MUST STAY CLOSED IN EVERY IMAGE — drawn as simple closed curved lines, exactly "
+  "the closed squinting eyes of the reference. Never open the eyes, never draw pupils, irises, "
+  "sclera or eyeballs of any kind. "
+  "The BROWS, MOUTH and BLUSH may change to carry the expression asked for. "
+  "REMOVE the pinwheel pom-poms entirely: the character holds nothing at all. Both hands are "
+  "bare, empty, small and rounded in the same toy style, with no object of any kind in them. "
+  "Full body, facing the camera, centred, on a plain flat bright green screen background with "
+  "no shadow, no floor, no props and absolutely no text, letters, numbers or watermarks."
 )
 
 POSES = {
-  'stand':  "Pose: standing upright, both feet on the ground, arms relaxed at its sides, empty hands.",
-  'run':    "Pose: running cheerfully toward the camera, one knee lifted, both arms swinging, empty hands.",
-  'jump':   "Pose: leaping with both arms thrown up above its head, both legs tucked, empty hands.",
-  'reach':  "Pose: leaning forward and reaching one arm down and out toward something on the ground in front of it, head tilted down, the other arm relaxed. Both hands empty.",
-  'present':"Pose: standing, with its right arm stretched straight up high above its head, well above the hood, the open empty palm facing forward as if holding something up for everyone to see; the left arm hangs relaxed at its side. Both hands empty.",
-  'sit':    "Pose: sitting with its knees drawn up and both empty hands resting on its knees, seen from the front.",
-  'wave':   "Pose: standing and waving one raised hand next to its head, the other arm relaxed. Both hands empty.",
-  'hold2':  "Pose: standing with both arms raised in front of its chest, both palms open and facing up side by side, as if about to receive something. Both hands empty.",
+  'stand':  "Pose: standing upright, both feet on the ground, arms relaxed at its sides, empty hands. "
+            "Expression: a calm closed-mouth smile, brows relaxed, soft blush.",
+  'jump':   "Pose: leaping with both arms thrown up above its head, both legs tucked, empty hands. "
+            "Expression: delighted, laughing with the mouth wide open and the tongue showing, brows raised high.",
+  'reach':  "Pose: leaning forward and reaching one arm down and out toward something on the ground in "
+            "front of it, head tilted down, the other arm relaxed, both hands empty. "
+            "Expression: curious and surprised, a small round open mouth, one brow raised higher than the other.",
+  'sit':    "Pose: sitting with its knees drawn up and both empty hands resting on its knees, seen from the front. "
+            "Expression: serene and content, a small closed-mouth smile, brows softly lowered, strong blush.",
+  'present':"Pose: standing, with its right arm stretched straight up high above its head, well above the hood, "
+            "the open empty palm facing forward as if holding something up for everyone to see; the left arm "
+            "hangs relaxed at its side, both hands empty. "
+            "Expression: proud and beaming, a big open smile, brows raised.",
+  'wave':   "Pose: standing and waving one raised hand next to its head, the other arm relaxed, both hands empty. "
+            "Expression: cheerful and friendly, an open smile with the tongue showing, brows raised.",
+  'hold2':  "Pose: standing with both arms raised in front of its chest, both palms open and facing up side by "
+            "side, as if about to receive something, both hands empty. "
+            "Expression: excited anticipation, mouth open in a small round 'oh', brows raised high.",
+  'shy':    "Pose: standing with both hands brought up near its cheeks, empty hands. "
+            "Expression: bashful and pleased, a small wavy closed mouth, brows tilted up in the middle, very strong blush.",
 }
 
 def token():
@@ -48,7 +61,7 @@ def token():
     if os.path.exists(TOKENFILE): return open(TOKENFILE).read().strip()
     sys.exit("no access token in %s" % TOKENFILE)
 
-def gen(project, location, name, instruction, tok, tries=2):
+def gen(project, location, name, instruction, tok, tries=3):
     url = ('https://%s-aiplatform.googleapis.com/v1/projects/%s/locations/%s'
            '/publishers/google/models/%s:generateContent' % (location, project, location, MODEL))
     ref = base64.b64encode(open(REF, 'rb').read()).decode()
@@ -64,7 +77,13 @@ def gen(project, location, name, instruction, tok, tries=2):
         with urllib.request.urlopen(req, timeout=300) as r:
             d = json.loads(r.read().decode())
     except urllib.error.HTTPError as e:
-        print("  %s: HTTP %s %s" % (name, e.code, e.read().decode(errors='replace')[:300]))
+        body = e.read().decode(errors='replace')
+        if e.code == 429 and tries > 0:
+            wait = 20 * (4 - tries)
+            print("  %s: rate limited, retrying in %ds" % (name, wait))
+            import time as _t; _t.sleep(wait)
+            return gen(project, location, name, instruction, tok, tries - 1)
+        print("  %s: HTTP %s %s" % (name, e.code, body[:300]))
         return None
     for c in d.get('candidates', []):
         for part in c.get('content', {}).get('parts', []):
