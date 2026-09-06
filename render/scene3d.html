@@ -25,6 +25,10 @@ import * as P from './lib/props.js';
 import * as LK from './lib/look.js';
 
 const W=1080,H=1920,DUR=24.0;
+// ?clean=1 -> no captions, no cut flash: plates for image-to-video hand-off
+const CLEAN=location.search.indexOf('clean')>=0;
+// ?captions=1 -> kinetic type only, on transparent, to overlay on generated clips
+const CAPS=location.search.indexOf('captions')>=0;
 const stage=document.getElementById('stage');
 const clamp=(v,a=0,b=1)=>v<a?a:(v>b?b:v);
 const pr=(t,a,b)=>clamp((t-a)/(b-a));
@@ -39,6 +43,10 @@ renderer.shadowMap.enabled=true; renderer.shadowMap.type=THREE.PCFSoftShadowMap;
 renderer.outputColorSpace=THREE.SRGBColorSpace;
 renderer.toneMapping=THREE.ACESFilmicToneMapping; renderer.toneMappingExposure=1.28;
 stage.appendChild(renderer.domElement);
+if(CAPS){renderer.domElement.style.display='none';
+  document.documentElement.style.background='transparent';
+  document.body.style.background='transparent';
+  stage.style.background='transparent';}
 
 const scene=new THREE.Scene();
 const camera=new THREE.PerspectiveCamera(32,W/H,0.1,400);
@@ -398,6 +406,24 @@ function beat(o,a,b,c,d,t){
   o.d.style.transform='scale('+lerp(1,1.12,eIn(out)).toFixed(3)+')';
 }
 function updateUI(t){
+  if(CAPS){
+    beat(UI.t1,0.75,1.35,2.35,2.62,t); beat(UI.t2,3.10,3.70,5.05,5.32,t);
+    beat(UI.t4,8.35,8.95,9.85,10.12,t); beat(UI.t5,10.75,11.35,12.05,12.32,t);
+    beat(UI.t6,12.95,13.55,14.45,14.72,t); beat(UI.t7,15.10,15.70,16.45,16.72,t);
+    beat(UI.t8,17.55,18.10,18.85,19.05,t);
+    UI.vig.style.opacity=0; UI.flash.style.opacity=0; UI.pc.style.opacity=0;
+    return;
+  }
+  if(CLEAN){
+    for(const k of ['t1','t2','t4','t5','t6','t7','t8']) UI[k].d.style.opacity=0;
+    UI.vig.style.opacity=0; UI.flash.style.opacity=0;
+    UI.pc.style.opacity=pr(t,19.22,19.52).toFixed(3);
+    const sw=pr(t,19.95,20.80);
+    UI.bProd.style.opacity=sw.toFixed(3); UI.bHall.style.opacity=(1-sw).toFixed(3);
+    UI.pcTop.style.opacity=0; UI.pcName.style.opacity=0; UI.pcTag.style.opacity=0;
+    UI.pcLine.style.opacity=0; UI.pcFoot.style.opacity=0;
+    return;
+  }
   beat(UI.t1,0.75,1.35,2.35,2.62,t);
   beat(UI.t2,3.10,3.70,5.05,5.32,t);
   beat(UI.t4,8.35,8.95,9.85,10.12,t);
@@ -458,11 +484,7 @@ window.render=function(t){
     }
     renderer.toneMappingExposure=1.28;
   }
-  updateWorld(t);
-  animChar(t,si);
-  camAt(t,si);
-  updateBottle(t,si);
-  renderer.render(scene,camera);
+  if(!CAPS){ updateWorld(t); animChar(t,si); camAt(t,si); updateBottle(t,si); renderer.render(scene,camera); }
   updateUI(t);
 };
 </script></body></html>

@@ -56,7 +56,11 @@ if (args.probe) {
   const t0 = Date.now();
   for (let i = from; i <= to; i++) {
     await page.evaluate(v => window.render(v), i / FPS);
-    await page.screenshot({ path: path.join(OUT, 'f' + String(i).padStart(5, '0') + '.jpg'), type: 'jpeg', quality: 95 });
+    if (args.alpha) {
+      await page.screenshot({ path: path.join(OUT, 'f' + String(i).padStart(5, '0') + '.png'), omitBackground: true });
+    } else {
+      await page.screenshot({ path: path.join(OUT, 'f' + String(i).padStart(5, '0') + '.jpg'), type: 'jpeg', quality: 95 });
+    }
     if ((i - from) % 30 === 0) {
       const el = (Date.now() - t0) / 1000, done = i - from + 1, left = to - i;
       console.log(`frame ${i}/${to}  ${el.toFixed(0)}s  ${(el / done).toFixed(2)}s/f  eta ${(el / done * left / 60).toFixed(1)}min`);
