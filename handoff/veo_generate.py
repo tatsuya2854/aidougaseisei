@@ -23,6 +23,10 @@ PLATES = os.path.join(ROOT, 'handoff', 'plates')
 CLIPS  = os.path.join(ROOT, 'handoff', 'clips')
 LOGS   = os.path.join(ROOT, 'handoff', 'logs')
 HOST   = 'https://generativelanguage.googleapis.com'
+# Vertex is a Cloud service billed through Cloud Billing, so a Google Cloud
+# free-trial credit pays for it. The AI Studio Gemini API has its own prepay
+# wallet that the trial credit does NOT cover, hence --vertex.
+TOKENFILE = os.path.expanduser('~/.gcp_access_token')
 
 STYLE = (
   "3D toy figure render, soft vinyl and matte plastic surfaces, collectible figure aesthetic. "
@@ -68,6 +72,32 @@ def api_key():
         return open(KEYFILE).read().strip()
     sys.exit("no API key. Either export GEMINI_API_KEY=... or put the key in %s (chmod 600)."
              % KEYFILE)
+
+def vertex_host(loc):
+    return 'https://%s-aiplatform.googleapis.com' % loc
+
+def access_token():
+    if os.environ.get('GOOGLE_ACCESS_TOKEN'):
+        return os.environ['GOOGLE_ACCESS_TOKEN'].strip()
+    if os.path.exists(TOKENFILE):
+        return open(TOKENFILE).read().strip()
+    sys.exit("no access token. In Cloud Shell run `gcloud auth print-access-token`\n"
+             "and put it in %s (it expires in about an hour)." % TOKENFILE)
+
+def vcall(url, payload, token, timeout=120):
+    req = urllib.request.Request(url, data=json.dumps(payload).encode(), method='POST',
+                                 headers={'Content-Type': 'application/json',
+                                          'Authorization': 'Bearer ' + token})
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            return json.loads(r.read().decode())
+    except urllib.error.HTTPError as e:
+        body = e.read().decode(errors='replace')
+        if e.code in (401, 403):
+            raise SystemExit("HTTP %s from Vertex.\n%s\n"
+                             "The token may have expired (they last about an hour) or the\n"
+                             "Vertex AI API may not be enabled on the project." % (e.code, body[:600]))
+        raise SystemExit("HTTP %s from Vertex\n%s" % (e.code, body[:1200]))
 
 def call(path, payload=None, method=None, key=None, timeout=120, _tries=0):
     """Veo variants accept different parameter sets; drop what a model rejects and retry."""
@@ -122,11 +152,17 @@ def main():
     ap.add_argument('--list-models', action='store_true')
     ap.add_argument('--estimate', action='store_true',
                     help='print what a run would cost and exit')
+    ap.add_argument('--vertex', action='store_true',
+                    help='use Vertex AI, which a Google Cloud free-trial credit pays for')
+    ap.add_argument('--project', default=os.environ.get('GCP_PROJECT', ''))
+    ap.add_argument('--location', default=os.environ.get('GCP_LOCATION', 'us-central1'))
     ap.add_argument('--poll', type=int, default=15)
     ap.add_argument('--timeout', type=int, default=900)
     a = ap.parse_args()
 
-    key = None if a.dry_run else api_key()
+    if a.vertex and not a.dry_run and not a.project:
+        sys.exit("--vertex needs --project <project-id> (e.g. gen-lang-client-0924303510)")
+    key = None if a.dry_run else (access_token() if a.vertex else api_key())
     os.makedirs(CLIPS, exist_ok=True); os.makedirs(LOGS, exist_ok=True)
 
     def veo_models():
@@ -146,7 +182,10 @@ def main():
             print("all visible models:", ', '.join(names[:30]), '...')
         return
 
-    if a.model == 'auto' and not a.dry_run:
+    if a.model == 'auto' and a.vertex:
+        a.model = 'veo-3.1-lite-generate-preview'
+        print("model: %s (Vertex default; override with --model)" % a.model)
+    elif a.model == 'auto' and not a.dry_run:
         _, veo = veo_models()
         if not veo:
             sys.exit("this key cannot see any Veo model. Run --list-models for detail.")
@@ -206,20 +245,36 @@ def main():
                 "mimeType": "image/jpeg"}
 
         print("shot %s: submitting to %s ..." % (num, a.model))
-        op = call('/v1beta/models/%s:predictLongRunning' % a.model, body, key=key)
-        opname = op.get('name')
-        if not opname: sys.exit("no operation name in response:\n" + json.dumps(op)[:800])
-        json.dump(op, open(os.path.join(LOGS, '%s_submit.json' % num), 'w'), indent=2)
-
-        t0 = time.time()
-        while True:
-            time.sleep(a.poll)
-            st = call('/v1beta/' + opname, key=key)
-            if st.get('done'):
-                break
-            if time.time() - t0 > a.timeout:
-                sys.exit("shot %s: timed out after %ds (operation %s)" % (num, a.timeout, opname))
-            print("   ... %ds" % int(time.time() - t0))
+        if a.vertex:
+            base = '%s/v1/projects/%s/locations/%s/publishers/google/models/%s' % (
+                vertex_host(a.location), a.project, a.location, a.model)
+            body['parameters']['sampleCount'] = 1
+            op = vcall(base + ':predictLongRunning', body, key)
+            opname = op.get('name')
+            if not opname: sys.exit("no operation name:\n" + json.dumps(op)[:800])
+            json.dump(op, open(os.path.join(LOGS, '%s_submit.json' % num), 'w'), indent=2)
+            t0 = time.time()
+            while True:
+                time.sleep(a.poll)
+                st = vcall(base + ':fetchPredictOperation', {'operationName': opname}, key)
+                if st.get('done'): break
+                if time.time() - t0 > a.timeout:
+                    sys.exit("shot %s: timed out after %ds" % (num, a.timeout))
+                print("   ... %ds" % int(time.time() - t0))
+        else:
+            op = call('/v1beta/models/%s:predictLongRunning' % a.model, body, key=key)
+            opname = op.get('name')
+            if not opname: sys.exit("no operation name in response:\n" + json.dumps(op)[:800])
+            json.dump(op, open(os.path.join(LOGS, '%s_submit.json' % num), 'w'), indent=2)
+            t0 = time.time()
+            while True:
+                time.sleep(a.poll)
+                st = call('/v1beta/' + opname, key=key)
+                if st.get('done'):
+                    break
+                if time.time() - t0 > a.timeout:
+                    sys.exit("shot %s: timed out after %ds (operation %s)" % (num, a.timeout, opname))
+                print("   ... %ds" % int(time.time() - t0))
         json.dump(st, open(os.path.join(LOGS, '%s_done.json' % num), 'w'), indent=2)
         if 'error' in st:
             sys.exit("shot %s failed: %s" % (num, json.dumps(st['error'])[:600]))
@@ -231,7 +286,9 @@ def main():
             if k in blob:
                 uri = blob.split(k, 1)[1].split('"', 1)[0]; break
         if uri:
-            dl = urllib.request.Request(uri, headers={'x-goog-api-key': key})
+            hdr = ({'Authorization': 'Bearer ' + key} if a.vertex
+                   else {'x-goog-api-key': key})
+            dl = urllib.request.Request(uri, headers=hdr)
             with urllib.request.urlopen(dl, timeout=600) as r, open(out, 'wb') as f:
                 f.write(r.read())
         else:

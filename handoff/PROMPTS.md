@@ -81,13 +81,38 @@ Veoは**返ってくるクリップの秒数**で課金されます（8秒固定
 | Gemini API / **Veo 3.1 Lite** | **$1.92〜3.20（約300〜500円）** | なし |
 | Gemini API / Veo 3.1 Fast | $9.60（約1,500円） | なし |
 | Gemini API / Veo 3.1 標準 | $25.60（約4,000円） | なし |
-| **Google Cloud 新規$300クレジット（90日）** | **実質無料**（Lite換算で約6,000秒ぶん） | なし |
+| **Vertex AI + Google Cloud 無料トライアルのクレジット** | **実質無料**（クレジットが適用される） | なし |
 | Google AI Pro 1ヶ月無料トライアル（Flow, 1,000クレジット） | 無料 | **あり（右下に "veo"）** |
 | Kling 無料枠（66クレジット/日） | 無料 | **あり** |
 
-**罠に注意：Flowの無料・Proプランは出力の右下に "veo" の可視ウォーターマークが入ります。**
+**罠その1：Flowの無料・Proプランは出力の右下に "veo" の可視ウォーターマークが入ります。**
 消せるのは AI Ultra だけです。一方 **API経由の出力に可視ウォーターマークは入りません**
 （不可視のSynthIDのみ）。納品用に使うならAPI一択です。
+
+**罠その2：Google Cloud の無料トライアル（$300 / ¥47,813）は、AI Studio の
+Gemini API には適用されません。** AI Studio の従量課金は Cloud Billing とは別の
+プリペイド残高（最低 $25 チャージ）で動いており、Cloud のクレジットは流用できません。
+一方 **Vertex AI は Cloud Billing で課金されるので、トライアルのクレジットが効きます**。
+つまり「クレジットを使い切りたいなら Vertex、手っ取り早く済ませたいなら AI Studio に $25 入れる」
+という分岐になります。
+
+### Vertex AI で回す（クレジットを使う場合）
+
+APIキーではなく **OAuth のアクセストークン**を使います。
+
+```bash
+# Cloud Console の Cloud Shell（>_ アイコン）で:
+gcloud auth print-access-token          # 出力をコピー（有効期限は約1時間）
+
+# こちら側で:
+echo '<貼り付けたトークン>' > ~/.gcp_access_token && chmod 600 ~/.gcp_access_token
+python3 handoff/veo_generate.py --vertex --project <プロジェクトID> --shots 8
+python3 handoff/veo_generate.py --vertex --project <プロジェクトID>      # 8カット
+```
+
+事前に対象プロジェクトで **Vertex AI API を有効化**しておく必要があります。
+トークンは1時間で失効するので、途中で切れたら取り直して同じ場所に置き直せば続きから回せます
+（生成済みのカットは自動でスキップされます）。
 
 ### どのキー？
 
