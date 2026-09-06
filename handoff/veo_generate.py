@@ -49,17 +49,23 @@ SHOTS = [
   ("08", "08_hero",        2.60, "Hero shot. The character stands on top of a giant pumpkin and proudly raises the bottle higher. Candies float upward around it and the sky glows warmer. The camera arcs slowly around to centre the character."),
 ]
 
+KEYFILE = os.path.expanduser('~/.gemini_api_key')
+
 def api_key():
     for k in ('GEMINI_API_KEY', 'GOOGLE_API_KEY', 'GOOGLE_GENAI_API_KEY'):
         if os.environ.get(k):
-            return os.environ[k]
-    sys.exit("no API key: export GEMINI_API_KEY=... (do not paste it into a chat message)")
+            return os.environ[k].strip()
+    if os.path.exists(KEYFILE):
+        return open(KEYFILE).read().strip()
+    sys.exit("no API key. Either export GEMINI_API_KEY=... or put the key in %s (chmod 600)."
+             % KEYFILE)
 
 def call(path, payload=None, method=None, key=None, timeout=120):
-    url = HOST + path + ('&' if '?' in path else '?') + 'key=' + key
     data = json.dumps(payload).encode() if payload is not None else None
-    req = urllib.request.Request(url, data=data, method=method or ('POST' if data else 'GET'),
-                                 headers={'Content-Type': 'application/json'})
+    req = urllib.request.Request(HOST + path, data=data,
+                                 method=method or ('POST' if data else 'GET'),
+                                 headers={'Content-Type': 'application/json',
+                                          'x-goog-api-key': key})
     try:
         with urllib.request.urlopen(req, timeout=timeout) as r:
             return json.loads(r.read().decode())
@@ -187,8 +193,8 @@ def main():
             if k in blob:
                 uri = blob.split(k, 1)[1].split('"', 1)[0]; break
         if uri:
-            u = uri + ('&' if '?' in uri else '?') + 'key=' + key
-            with urllib.request.urlopen(u, timeout=600) as r, open(out, 'wb') as f:
+            dl = urllib.request.Request(uri, headers={'x-goog-api-key': key})
+            with urllib.request.urlopen(dl, timeout=600) as r, open(out, 'wb') as f:
                 f.write(r.read())
         else:
             b64 = None
