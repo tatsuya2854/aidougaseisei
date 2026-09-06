@@ -60,7 +60,8 @@ def api_key():
     sys.exit("no API key. Either export GEMINI_API_KEY=... or put the key in %s (chmod 600)."
              % KEYFILE)
 
-def call(path, payload=None, method=None, key=None, timeout=120):
+def call(path, payload=None, method=None, key=None, timeout=120, _tries=0):
+    """Veo variants accept different parameter sets; drop what a model rejects and retry."""
     data = json.dumps(payload).encode() if payload is not None else None
     req = urllib.request.Request(HOST + path, data=data,
                                  method=method or ('POST' if data else 'GET'),
@@ -71,6 +72,19 @@ def call(path, payload=None, method=None, key=None, timeout=120):
             return json.loads(r.read().decode())
     except urllib.error.HTTPError as e:
         body = e.read().decode(errors='replace')
+        if e.code == 400 and "isn't supported by this model" in body and _tries < 4 and payload:
+            bad = body.split('`', 2)[1] if '`' in body else None
+            params = payload.get('parameters', {})
+            if bad and bad in params:
+                params.pop(bad)
+                print("   (model rejects `%s`, dropping it and retrying)" % bad)
+                return call(path, payload, method, key, timeout, _tries + 1)
+        if e.code == 429:
+            raise SystemExit(
+                "HTTP 429 RESOURCE_EXHAUSTED from %s\n"
+                "The key is valid but has no Veo quota: Veo is paid-tier only.\n"
+                "Enable billing on the key's project (aistudio.google.com/apikey -> the\n"
+                "project's billing setup), then re-run. Nothing was generated or charged.\n" % path)
         raise SystemExit("HTTP %s from %s\n%s" % (e.code, path, body[:1200]))
 
 def plate_jpeg(name, tag='start', width=720):
@@ -125,8 +139,10 @@ def main():
         _, veo = veo_models()
         if not veo:
             sys.exit("this key cannot see any Veo model. Run --list-models for detail.")
-        rank = lambda n: (('3.1' in n) * 3 + ('3.0' in n or 'veo-3' in n) * 2 + ('2' in n) * 1,
-                          'generate' in n, n)
+        def rank(n):
+            gen = 3 if '3.1' in n else (2 if 'veo-3' in n else 1)
+            tier = 0 if 'lite' in n else (1 if 'fast' in n else 2)   # full > fast > lite
+            return (gen, tier, n)
         a.model = sorted(veo, key=rank, reverse=True)[0]
         print("model: %s (auto-selected from what the key can see)" % a.model)
     elif a.model == 'auto':
