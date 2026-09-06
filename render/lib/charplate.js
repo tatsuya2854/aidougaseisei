@@ -1,27 +1,36 @@
 /* ------------------------------------------------------------------
-   Character = the supplied 3D render, composited as untouched pixels.
-   Same buildCharacter/poseCharacter signature as the old primitive rig,
-   so the shot list and camera work carry over unchanged; the pose
-   parameters that a single still cannot express become no-ops.
+   Character = the supplied 3D render plus poses generated from it,
+   composited as untouched pixels on a camera-facing plate.
+   Same buildCharacter/poseCharacter signature as the old primitive rig.
    ------------------------------------------------------------------ */
 import * as THREE from 'three';
 
 export const PAL = { skin: 0xFCD9BE };
+const H0 = 3.07;                      // world height of the reference pose
 
-const SRC_W = 1295, SRC_H = 1203;
-// The plate is wider than the old rig (raised pom-poms), and on a 9:16 frame
-// width is what binds, so it is sized by width rather than height.
-export const CH_W_TARGET = 3.30;
-export const CH_H = CH_W_TARGET * 1203 / 1295;
-const CH_W = CH_H * SRC_W / SRC_H;
+/* per-pose size trim, so the body reads the same when the arms move */
+export const POSES = {
+  source:  { url: '/assets/build/char_hw.png',       k: 1.00, lift: 0.00 },
+  run:     { url: '/assets/poses/cut/run.png',       k: 0.98, lift: 0.00 },
+  jumpbig: { url: '/assets/poses/cut/jumpbig.png',   k: 1.06, lift: 0.00 },
+  present: { url: '/assets/poses/cut/present.png',   k: 1.02, lift: 0.00 },
+  reach:   { url: '/assets/poses/cut/reach.png',     k: 0.96, lift: 0.00 },
+  sit:     { url: '/assets/poses/cut/sit.png',       k: 0.86, lift: 0.00 },
+  stand:   { url: '/assets/poses/cut/stand.png',     k: 0.92, lift: 0.00 }
+};
 
-export async function loadCharacterPlate(url) {
-  const tex = await new Promise(res => new THREE.TextureLoader().load(url, t => {
-    t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 16;
-    t.minFilter = THREE.LinearMipmapLinearFilter; t.magFilter = THREE.LinearFilter;
-    res(t);
-  }));
-  return tex;
+export async function loadCharacterPlate() {
+  const loader = new THREE.TextureLoader();
+  const out = {};
+  await Promise.all(Object.keys(POSES).map(n => new Promise(res => {
+    loader.load(POSES[n].url, t => {
+      t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 16;
+      t.minFilter = THREE.LinearMipmapLinearFilter; t.magFilter = THREE.LinearFilter;
+      out[n] = { tex: t, w: t.image.width, h: t.image.height, k: POSES[n].k, lift: POSES[n].lift };
+      res();
+    }, undefined, () => { console.error('pose failed:', n); res(); });
+  })));
+  return out;
 }
 
 function shadowTex() {
@@ -35,50 +44,52 @@ function shadowTex() {
   const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t;
 }
 
-export function buildCharacter(tex) {
-  const root = new THREE.Group();          // origin at the feet
+export function buildCharacter(poses) {
+  const root = new THREE.Group();
   const body = new THREE.Group(); root.add(body);
-
   const mat = new THREE.MeshBasicMaterial({
-    map: tex, transparent: true, depthWrite: false, fog: false,
+    map: poses.source.tex, transparent: true, depthWrite: false, fog: false,
     alphaTest: 0.02, side: THREE.DoubleSide
   });
-  const plate = new THREE.Mesh(new THREE.PlaneGeometry(CH_W, CH_H), mat);
-  plate.position.y = CH_H / 2;
+  const plate = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), mat);
   body.add(plate);
-
-  const shadow = new THREE.Mesh(new THREE.PlaneGeometry(CH_W * 0.52, CH_W * 0.20),
+  const shadow = new THREE.Mesh(new THREE.PlaneGeometry(1, 1),
     new THREE.MeshBasicMaterial({ map: shadowTex(), transparent: true, depthWrite: false, fog: false }));
   shadow.rotation.x = -Math.PI / 2; shadow.position.y = 0.02;
   root.add(shadow);
-
-  // a free anchor near the raised right hand, for props the pose can carry
-  const hand = new THREE.Group(); hand.position.set(CH_W * 0.34, CH_H * 0.74, 0.02);
-  body.add(hand);
-
-  root.userData = { body, plate, mat, shadow, hands: [hand, hand], poms: [], arms: [], legs: [] };
+  const hand = new THREE.Group(); body.add(hand);
+  root.userData = { body, plate, mat, shadow, poses, cur: null, hands: [hand, hand],
+                    poms: [], arms: [], legs: [] };
+  setPose(root, 'source');
   return root;
 }
 
-/* Accepts the old pose object; only what a single plate can honour is used. */
+export function setPose(root, name) {
+  const u = root.userData;
+  const p = u.poses[name] || u.poses.source;
+  if (u.cur === name) return;
+  u.cur = name;
+  u.mat.map = p.tex; u.mat.needsUpdate = true;
+  const h = H0 * p.k, w = h * p.w / p.h;
+  u.plate.scale.set(w, h, 1);
+  u.plate.position.y = h / 2 + p.lift;
+  u.shadow.scale.set(w * 0.5, w * 0.19, 1);
+  // the raised open hand in the "present" pose, for a prop to sit in
+  u.hands[0].position.set(w * 0.30, h * 0.72, 0.03);
+}
+
 export function poseCharacter(root, p) {
   const u = root.userData;
+  if (p.pose) setPose(root, p.pose);
   const bob = p.bob || 0, sq = p.squash || 0;
   u.body.position.y = bob;
   u.body.position.x = p.bx || 0;
   u.body.scale.set(1 - sq * 0.12, 1 + sq * 0.15, 1);
   u.body.rotation.z = (p.lean || 0) * 0.8;
-
   const lift = Math.max(0, bob);
-  u.shadow.scale.setScalar(Math.max(0.25, 1 - lift * 0.16));
   u.shadow.material.opacity = Math.max(0.12, 1 - lift * 0.22);
-  if (u.mat.userData_tint !== p.tint) {
-    u.mat.color.set(p.tint === undefined ? 0xffffff : p.tint);
-    u.mat.userData_tint = p.tint;
-  }
 }
 
-/* keep the plate facing the camera (single front-facing pose) */
 export function faceCamera(root, camera) {
   root.rotation.y = Math.atan2(camera.position.x - root.position.x,
                                camera.position.z - root.position.z);

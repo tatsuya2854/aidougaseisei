@@ -1,0 +1,44 @@
+{
+ "jumpbig": {
+  "w": 958,
+  "h": 824,
+  "head": 955,
+  "headRatio": 0.9969
+ },
+ "present": {
+  "w": 706,
+  "h": 867,
+  "head": 666,
+  "headRatio": 0.9433
+ },
+ "reach": {
+  "w": 894,
+  "h": 945,
+  "head": 890,
+  "headRatio": 0.9955
+ },
+ "run": {
+  "w": 837,
+  "h": 830,
+  "head": 752,
+  "headRatio": 0.8984
+ },
+ "sit": {
+  "w": 840,
+  "h": 817,
+  "head": 829,
+  "headRatio": 0.9869
+ },
+ "stand": {
+  "w": 831,
+  "h": 753,
+  "head": 723,
+  "headRatio": 0.87
+ },
+ "source": {
+  "w": 1295,
+  "h": 1203,
+  "head": 1072,
+  "headRatio": 0.8278
+ }
+}
