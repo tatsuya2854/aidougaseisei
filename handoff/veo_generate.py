@@ -38,6 +38,15 @@ NEGATIVE = ("open eyes, realistic eyes, pupils, irises, changed facial expressio
             "text, letters, watermark, morphing face, distorted logo, photorealistic human skin, "
             "harsh shadows, high contrast")
 
+# Published per-second rates, Sep 2026. Verify against the current pricing page
+# before a big run: these move, and they are the whole basis of the estimate.
+RATES = {
+  'veo-3.1-lite-generate-preview': (0.03, 0.05),
+  'veo-3.1-fast-generate-preview': (0.15, 0.15),
+  'veo-3.1-generate-preview':      (0.40, 0.40),
+}
+CLIP_SECONDS = 8            # Veo returns a fixed-length clip; we trim it afterwards
+
 SHOTS = [
   ("01", "01_landing",     2.70, "The character has just landed on the cobbled street and bounces lightly in place, pom-poms jiggling. Candy pieces drift slowly past the lens. The camera pushes in very slowly. Gentle secondary motion only."),
   ("02", "02_run",         2.70, "The character runs cheerfully toward the camera down the cobbled street, under an arch of glowing pumpkins, with a slight up-and-down bounce and swinging arms. The camera dollies back slowly to hold the framing."),
@@ -111,6 +120,8 @@ def main():
                     help='ask the model to skip audio (we mix our own score); some models reject it')
     ap.add_argument('--dry-run', action='store_true')
     ap.add_argument('--list-models', action='store_true')
+    ap.add_argument('--estimate', action='store_true',
+                    help='print what a run would cost and exit')
     ap.add_argument('--poll', type=int, default=15)
     ap.add_argument('--timeout', type=int, default=900)
     a = ap.parse_args()
@@ -151,6 +162,17 @@ def main():
     want = [s for s in SHOTS if a.shots == 'all' or s[0].lstrip('0') in
             [x.strip().lstrip('0') for x in a.shots.split(',')]]
     if not want: sys.exit("no shot matched --shots")
+
+    if a.estimate:
+        secs = len(want) * CLIP_SECONDS
+        print("%d shot(s) x %ds billed output = %d seconds" % (len(want), CLIP_SECONDS, secs))
+        print("(Veo bills the clip it returns, not the %.1fs we trim it to)"
+              % sum(s[2] for s in want))
+        for m, (lo, hi) in RATES.items():
+            rng = ("$%.2f" % (secs * lo)) if lo == hi else ("$%.2f-%.2f" % (secs * lo, secs * hi))
+            print("  %-32s %s" % (m.replace('-generate-preview', ''), rng))
+        print("rates as published Sep 2026 - check the current pricing page before a big run")
+        return
 
     for num, name, dur, motion in want:
         out = os.path.join(CLIPS, '%s.mp4' % num)
