@@ -20,7 +20,7 @@ img{display:block}
 <script type="importmap">{"imports":{"three":"/node_modules/three/build/three.module.js","three/addons/":"/node_modules/three/examples/jsm/"}}</script>
 <script type="module">
 import * as THREE from 'three';
-import { buildCharacter, poseCharacter, loadFaceAssets } from './lib/char.js';
+import { buildCharacter, poseCharacter, loadCharacterPlate, faceCamera, CH_H } from './lib/charplate.js';
 import * as P from './lib/props.js';
 import * as LK from './lib/look.js';
 
@@ -215,14 +215,14 @@ for(let i=0;i<6;i++){
 /* ---------------- character + bottle ---------------- */
 let char=null, heldBottle=null, propBottle=null, bottleGlow=null;
 const ready=(async function(){
-  const fa=await loadFaceAssets('/assets/build/face_decal.png');
-  char=buildCharacter(fa); scene.add(char);
+  const chTex=await loadCharacterPlate('/assets/build/char_hw.png');
+  char=buildCharacter(chTex); scene.add(char);
   const btex=await new Promise(r=>new THREE.TextureLoader().load('/assets/build/plate_hall.png',
     t=>{t.colorSpace=THREE.SRGBColorSpace;t.anisotropy=8;r(t);}));
   const mk=(h)=>{const w=h*583/1193;
     return new THREE.Mesh(new THREE.PlaneGeometry(w,h),
       new THREE.MeshBasicMaterial({map:btex,transparent:true,depthWrite:false,fog:false}));};
-  heldBottle=mk(2.00); heldBottle.position.set(0.02,-0.16,0.22);
+  heldBottle=mk(1.70); heldBottle.position.set(0.30,-0.30,0.25);
   char.userData.hands[1].add(heldBottle); heldBottle.visible=false;
   propBottle=new THREE.Group(); scene.add(propBottle);
   const pb=mk(1.55); propBottle.add(pb);
@@ -361,7 +361,7 @@ function animChar(t,si){
   char.position.set(pos.x,pos.y,pos.z);
   char.rotation.y=ry;
   poseCharacter(char,pose);
-  if(heldBottle) heldBottle.visible=(si===7);
+  if(heldBottle) heldBottle.visible=false;
   rig.key.position.set(pos.x-4.5,pos.y+9,pos.z+8);
   rig.key.target.position.set(pos.x,pos.y+1.6,pos.z);
   rig.key.target.updateMatrixWorld();
@@ -377,16 +377,26 @@ function camAt(t,si){
     case 4: setCam(lerp(2.45,2.85,e),lerp(2.35,2.15,e),lerp(0.15,-0.60,e), 5.20,1.78,-5.15, lerp(32,29,e)); break;
     case 5: setCam(lerp(1.4,-0.5,e),lerp(1.8,2.4,e),lerp(-3.0,-4.0,e), 0,lerp(3.15,2.95,e),-14.4, 34); break;
     case 6: setCam(lerp(1.3,0.5,e),lerp(3.25,3.05,e),lerp(-3.9,-4.7,e), 0,lerp(2.75,2.65,e),-13.2, 28); break;
-    case 7: setCam(HERO_X+lerp(2.4,-0.7,eIO(u)),lerp(HERO_TOP+1.15,HERO_TOP+1.55,e),HERO_Z+lerp(14.9,14.2,e),
-                   HERO_X,HERO_TOP+1.72,HERO_Z, 30); break;
+    case 7: setCam(HERO_X+lerp(1.9,-0.6,eIO(u)),lerp(HERO_TOP+0.85,HERO_TOP+1.15,e),HERO_Z+lerp(11.3,10.8,e),
+                   HERO_X+0.35,HERO_TOP+1.20,HERO_Z, 30); break;
     default: setCam(0,2.6,9.0, 0,2.3,0, 42); break;
   }
 }
 
 function updateBottle(t,si){
   if(!propBottle) return;
-  const on=(si===3||si===4);
+  const on=(si===3||si===4||si===7);
   propBottle.visible=on;
+  if(si===7){
+    const rise=eOut4(pr(t,17.15,18.25));
+    propBottle.position.set(HERO_X+1.30, lerp(HERO_TOP+0.5,HERO_TOP+1.75,rise)+Math.sin(t*1.5)*0.04, HERO_Z+0.35);
+    propBottle.scale.setScalar(lerp(0.6,1.15,rise));
+    propBottle.lookAt(camera.position.x,propBottle.position.y,camera.position.z);
+    const g=rise*(0.22+0.10*Math.sin(t*3.4))+pr(t,18.60,19.15)*1.5;
+    bottleGlow.material.opacity=clamp(g); bottleGlow.scale.setScalar(3.6*(0.8+g));
+    return;
+  }
+  propBottle.scale.setScalar(1);
   if(on){
     propBottle.position.set(5.22,1.38+Math.sin(t*1.4)*0.03,-5.15);
     propBottle.lookAt(camera.position.x,propBottle.position.y,camera.position.z);
@@ -484,7 +494,8 @@ window.render=function(t){
     }
     renderer.toneMappingExposure=1.28;
   }
-  if(!CAPS){ updateWorld(t); animChar(t,si); camAt(t,si); updateBottle(t,si); renderer.render(scene,camera); }
+  if(!CAPS){ updateWorld(t); animChar(t,si); camAt(t,si); faceCamera(char,camera);
+             updateBottle(t,si); renderer.render(scene,camera); }
   updateUI(t);
 };
 </script></body></html>
