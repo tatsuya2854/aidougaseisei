@@ -54,7 +54,7 @@ export function pumpkin(scale, opts) {
   for (let i = 0; i < p.count; i++) {
     v.fromBufferAttribute(p, i);
     const th = Math.atan2(v.z, v.x);
-    const rib = 1 + 0.085 * Math.cos(th * 8) - 0.02;
+    const rib = 1 + 0.170 * Math.cos(th * 8) - 0.045;
     const bulge = 1 + 0.10 * (1 - v.y * v.y);
     p.setXYZ(i, v.x * rib * bulge, v.y * 0.80, v.z * rib * bulge);
   }

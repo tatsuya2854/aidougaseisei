@@ -1,45 +1,84 @@
-<!doctype html><html><head><meta charset="utf-8"><title>char test</title>
-<style>html,body{margin:0;background:#2A1B3D;width:1080px;height:1920px;overflow:hidden}canvas{display:block}</style></head>
+<!doctype html><html><head><meta charset="utf-8"><title>look dev</title>
+<style>html,body{margin:0;background:#E7D9EE;width:1080px;height:1920px;overflow:hidden}canvas{display:block}</style></head>
 <body>
 <script type="importmap">{"imports":{"three":"/node_modules/three/build/three.module.js","three/addons/":"/node_modules/three/examples/jsm/"}}</script>
 <script type="module">
 import * as THREE from 'three';
-import { buildCharacter, poseCharacter, PAL } from './lib/char.js';
+import { buildCharacter, poseCharacter, loadFaceAssets } from './lib/char.js';
+import * as P from './lib/props.js';
+import * as LK from './lib/look.js';
 
 const W=1080,H=1920;
 const renderer=new THREE.WebGLRenderer({antialias:true,preserveDrawingBuffer:true});
 renderer.setSize(W,H); renderer.setPixelRatio(1);
 renderer.shadowMap.enabled=true; renderer.shadowMap.type=THREE.PCFSoftShadowMap;
 renderer.outputColorSpace=THREE.SRGBColorSpace;
+renderer.toneMapping=THREE.ACESFilmicToneMapping; renderer.toneMappingExposure=1.28;
 document.body.appendChild(renderer.domElement);
 
-const scene=new THREE.Scene(); scene.background=new THREE.Color(0x2A1B3D);
-const camera=new THREE.PerspectiveCamera(32,W/H,0.1,200);
-camera.position.set(0,2.4,12.5); camera.lookAt(0,2.05,0);
+const scene=new THREE.Scene();
+const camera=new THREE.PerspectiveCamera(30,W/H,0.1,300);
 
-scene.add(new THREE.HemisphereLight(0xBFA6FF,0x40204a,0.75));
-const key=new THREE.DirectionalLight(0xFFE2B0,1.5); key.position.set(4,7,6);
-key.castShadow=true; key.shadow.mapSize.set(1024,1024);
-key.shadow.camera.left=-5;key.shadow.camera.right=5;key.shadow.camera.top=6;key.shadow.camera.bottom=-1;
-scene.add(key);
-const rim=new THREE.DirectionalLight(0xFF6FB5,1.1); rim.position.set(-5,4,-6); scene.add(rim);
-const fill=new THREE.PointLight(0xFFA94D,26,18,2); fill.position.set(-2.5,1.2,3.2); scene.add(fill);
+/* ---------- pastel dusk sky, soft and already out of focus ---------- */
+function skyTex(){
+  const c=document.createElement('canvas'); c.width=540; c.height=960;
+  const g=c.getContext('2d');
+  const gr=g.createLinearGradient(0,0,0,960);
+  gr.addColorStop(0.00,'#9385C6'); gr.addColorStop(0.26,'#AE97D2');
+  gr.addColorStop(0.48,'#C9A4CD'); gr.addColorStop(0.66,'#E5B4B6');
+  gr.addColorStop(0.82,'#F5C69F'); gr.addColorStop(1.00,'#FAD9A8');
+  g.fillStyle=gr; g.fillRect(0,0,540,960);
+  g.filter='blur(26px)';
+  const clouds=[[120,300,190,64,'rgba(255,226,222,0.55)'],[400,240,210,58,'rgba(232,214,244,0.5)'],
+    [260,470,250,70,'rgba(255,214,196,0.45)'],[80,620,220,64,'rgba(255,228,205,0.5)'],
+    [430,660,200,58,'rgba(250,214,206,0.45)'],[300,120,180,50,'rgba(226,212,246,0.4)']];
+  clouds.forEach(k=>{g.fillStyle=k[4];g.beginPath();g.ellipse(k[0],k[1],k[2],k[3],0,0,7);g.fill();});
+  g.filter='none';
+  const t=new THREE.CanvasTexture(c); t.colorSpace=THREE.SRGBColorSpace; return t;
+}
+scene.background=skyTex();
 
-const ground=new THREE.Mesh(new THREE.CircleGeometry(14,48),
-  new THREE.MeshPhongMaterial({color:0x51305e,shininess:6}));
-ground.rotation.x=-Math.PI/2; ground.receiveShadow=true; scene.add(ground);
+/* ---------- soft light rig ---------- */
+scene.add(new THREE.AmbientLight(0xE9DCFF,0.55));
+const hemi=new THREE.HemisphereLight(0xCDBBF0,0xF7D4B4,0.95); scene.add(hemi);
+const key=new THREE.DirectionalLight(0xFFE8CE,1.30);
+key.position.set(-5,9,8); key.castShadow=true; key.shadow.mapSize.set(1024,1024);
+key.shadow.camera.left=-7;key.shadow.camera.right=7;key.shadow.camera.top=8;key.shadow.camera.bottom=-6;
+key.shadow.camera.near=1;key.shadow.camera.far=40;key.shadow.bias=-0.0014;
+key.shadow.radius=4; scene.add(key);
+const rim=new THREE.DirectionalLight(0xFFB37A,1.05); rim.position.set(6,4,-9); scene.add(rim);
+const fill=new THREE.DirectionalLight(0xC9B4FF,0.55); fill.position.set(7,3,7); scene.add(fill);
 
-const loader=new THREE.TextureLoader();
-loader.load('/assets/build/face_decal.png',function(tex){
-  tex.colorSpace=THREE.SRGBColorSpace; tex.anisotropy=4;
-  const ch=buildCharacter(tex); scene.add(ch);
-  window.render=function(t){
-    const hop=Math.abs(Math.sin(t*2.0));
-    poseCharacter(ch,{t:t,bob:hop*0.5,squash:-0.18+hop*0.32,lean:-0.09,
-      armSwing:0.25*Math.sin(t*4),legSwing:0.28*Math.sin(t*4),headTilt:-0.12});
-    ch.rotation.y=t*0.55;
-    renderer.render(scene,camera);
-  };
-  window.__DUR=8; window.render(0); window.__ready=true;
-});
+/* ---------- hero pumpkin ---------- */
+const pk=P.pumpkin(2.2,{face:false,light:false});
+pk.position.set(0,pk.position.y-0.9,0);
+pk.traverse(o=>{if(o.isMesh){o.material=new THREE.MeshPhongMaterial({
+  color:0xF2932A,shininess:26,specular:0x4a3520,emissive:new THREE.Color(0xF2932A).multiplyScalar(0.09)});
+  o.receiveShadow=true;}});
+scene.add(pk);
+const TOP=2.2*1.60-0.9-0.18;
+
+const cands=LK.candyField(scene,{n:24,cx:0,cy:2.6,cz:0,spread:13,rise:9,seed:99});
+
+/* ---------- character ---------- */
+const fa=await loadFaceAssets('/assets/build/face_decal.png');
+const ch=buildCharacter(fa); ch.position.set(0,TOP,0); scene.add(ch);
+
+const btex=await new Promise(r=>new THREE.TextureLoader().load('/assets/build/plate_hall.png',t=>{t.colorSpace=THREE.SRGBColorSpace;t.anisotropy=8;r(t);}));
+const bh=1.62, bw=bh*583/1193;
+const bottle=new THREE.Mesh(new THREE.PlaneGeometry(bw,bh),
+  new THREE.MeshBasicMaterial({map:btex,transparent:true,depthWrite:false}));
+bottle.position.set(0.10,-0.74,0.18); bottle.rotation.z=0.10;
+ch.userData.hands[1].add(bottle);
+
+window.render=function(t){
+  const b=Math.abs(Math.sin(t*Math.PI/0.9));
+  poseCharacter(ch,{t:t,bob:b*0.16,squash:-0.06+b*0.14,lean:-0.06,headTilt:-0.09,
+    armLA:-0.66,armLX:0.1,armRA:2.42,armRX:-0.10,hidePomR:true});
+  ch.rotation.y=Math.sin(t*0.5)*0.12;
+  LK.driftCandy(cands,t);
+  camera.position.set(0.0,TOP+2.25,14.5); camera.lookAt(0,TOP+1.78,0);
+  renderer.render(scene,camera);
+};
+window.__DUR=4; window.render(0.45); window.__ready=true;
 </script></body></html>
