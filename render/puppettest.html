@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="ja"><head><meta charset="utf-8"><title>puppet test</title>
+<style>*{margin:0;padding:0}html,body{width:1600px;height:640px;overflow:hidden;background:#1BBE1B}canvas{display:block}</style></head>
+<body>
+<script type="importmap">{"imports":{"three":"/node_modules/three/build/three.module.js","three/addons/":"/node_modules/three/examples/jsm/"}}</script>
+<script type="module">
+import * as THREE from 'three';
+import { loadPuppet, buildPuppet, posePuppet, faceCamera } from './lib/puppet.js';
+const W=1600,H=640;
+const renderer=new THREE.WebGLRenderer({antialias:true,preserveDrawingBuffer:true});
+renderer.setSize(W,H); renderer.setPixelRatio(1); renderer.outputColorSpace=THREE.SRGBColorSpace;
+document.body.appendChild(renderer.domElement);
+const scene=new THREE.Scene(); scene.background=new THREE.Color(0x1BBE1B);
+const camera=new THREE.PerspectiveCamera(30,W/H,0.1,100);
+camera.position.set(0,1.9,13.4); camera.lookAt(0,1.9,0);
+const A=await loadPuppet();
+const POSES=[
+  {expr:'stand'},
+  {expr:'cheer', armL:-1.55, armR:1.95, legL:-0.10, legR:0.55, legRScale:0.72, by:0.35, squash:0.10, spine:-0.04, head:0.10, tail:-0.35, pomL:0.3, pomR:-0.4},
+  {expr:'jump', armL:-2.05, armR:2.05, legL:-0.30, legR:0.34, by:0.7, squash:0.16, head:0.05, tail:-0.5},
+  {expr:'wave', armL:-0.25, armR:2.2, legL:-0.1, legR:0.12, head:-0.08, tail:0.35, pomR:0.5},
+  {expr:'shy', hideArms:true, head:-0.10, tail:-0.3, squash:-0.08},
+  {expr:'reach', armR:1.30, armL:-0.3, spine:0.18, head:0.14, poms:false, tail:0.4}
+];
+for(let i=0;i<POSES.length;i++){
+  const r=buildPuppet(A); scene.add(r); r.position.set(-7.0+i*2.8,0,0);
+  posePuppet(r,POSES[i]); faceCamera(r,camera);
+}
+window.__ready=true; window.render=function(){renderer.render(scene,camera);}; window.render();
+</script></body></html>

@@ -20,7 +20,7 @@ img{display:block}
 <script type="importmap">{"imports":{"three":"/node_modules/three/build/three.module.js","three/addons/":"/node_modules/three/examples/jsm/"}}</script>
 <script type="module">
 import * as THREE from 'three';
-import { makeCharacter, poseCharacter as posePuppet, H as CHAR_H } from './lib/char3d.js';
+import { buildPuppet, posePuppet, loadPuppet, faceCamera, exprAt as exprAtP } from './lib/puppet.js';
 import * as P from './lib/props.js';
 import * as LK from './lib/look.js';
 import { makeBottle, bottleEnv, H as BOTTLE_H } from './lib/bottle3d.js';
@@ -243,7 +243,8 @@ for(let i=0;i<3;i++){
 /* ---------------- character + bottle ---------------- */
 let char=null, heldBottle=null, propBottle=null, bottleGlow=null;
 const ready=(async function(){
-  char=makeCharacter(); scene.add(char);
+  const rigAssets=await loadPuppet();
+  char=buildPuppet(rigAssets); scene.add(char);
   const labelTex=await new Promise(r=>new THREE.TextureLoader().load('/assets/build/label_hall.png',
     t=>{t.colorSpace=THREE.SRGBColorSpace;t.anisotropy=16;r(t);}));
   const bEnv=bottleEnv(renderer,false);
@@ -331,66 +332,56 @@ function updateWorld(t){
 }
 
 /* ------------------------------------------------------------------
-   Animation. The character is a real 3D model with a skeleton now, so
-   the shots are written as joint angles in three axes and the camera is
-   free to orbit. charXform stays a pure function of time; the
-   follow-through (head lag, tail whip, body arc) is derived by sampling
-   it either side of the frame.
+   Animation, 2D puppet. charXform is the intent pose (pure function of
+   t); the overlap layer below turns it into a character by making every
+   soft part arrive late and ring. Depth is faked the 2D way: a limb
+   swinging toward camera is drawn shorter.
    ------------------------------------------------------------------ */
-
-// one bounce: crouch, snap into the air, land hard, wobble it off
 function bounce(u,h){
   const A=0.22,B=0.84;
   if(u<A){ const k=u/A; return {y:0,sq:-0.24*k*k,air:0,land:0,p:0,u:u}; }
   if(u<B){ const p=(u-A)/(B-A);
     return {y:h*4*p*(1-p), sq:0.24*Math.abs(2*p-1)-0.02, air:1, land:0, p:p, u:u}; }
   const k=(u-B)/(1-B);
-  return {y:0, sq:-0.26*Math.exp(-k*4.2)*Math.cos(k*9.0), air:0, land:1-k, p:1, u:u};
+  return {y:0, sq:-0.30*Math.exp(-k*4.2)*Math.cos(k*9.0), air:0, land:1-k, p:1, u:u};
 }
 function hops(lt,t0,per,h){
   if(lt<t0) return {y:0,sq:0,air:0,land:0,n:-1,u:0,p:0};
   const n=Math.floor((lt-t0)/per), u=((lt-t0)%per)/per;
   const b=bounce(u,h); b.n=n; return b;
 }
-// arms and legs through one bounce
 function bounceLimbs(o,b,amt){
   const u=b.u, air=b.air, k=amt==null?1:amt;
   let raise, splay, tuck;
-  if(u<0.22){ const q=u/0.22; raise=lerp(0.16,-0.22,q); splay=lerp(0.10,0.34,q); tuck=lerp(0.05,0.85,q); }
+  if(u<0.22){ const q=u/0.22; raise=lerp(0.16,-0.20,q); splay=lerp(0.08,0.30,q); tuck=lerp(1,0.86,q); }
   else if(air){ const p=b.p;
-    raise=lerp(-0.22,2.05,clamp(p*3.0))*(p<0.75?1:lerp(1,0.80,(p-0.75)/0.25));
-    splay=Math.sin(p*Math.PI)*0.46+0.10;
-    tuck=Math.sin(p*Math.PI)*1.15+0.10; }
-  else { const q=1-b.land; raise=lerp(1.55,0.16,eOut(q)); splay=lerp(0.52,0.10,eOut(q));
-    tuck=lerp(1.05,0.06,eOut(q)); }
+    raise=lerp(-0.20,2.05,clamp(p*3.0))*(p<0.75?1:lerp(1,0.80,(p-0.75)/0.25));
+    splay=Math.sin(p*Math.PI)*0.42+0.08; tuck=1-Math.sin(p*Math.PI)*0.30; }
+  else { const q=1-b.land; raise=lerp(1.55,0.16,eOut(q)); splay=lerp(0.48,0.08,eOut(q)); tuck=lerp(0.84,1,eOut(q)); }
   o.armL=-raise*k; o.armR=raise*k;
   o.legL=-splay*k*0.8; o.legR=splay*k*0.8;
-  o.kneeL=o.kneeR=-tuck*k*0.8;
-  o.legLF=o.legRF=tuck*k*0.45;
+  o.legLScale=o.legRScale=tuck;
 }
-// a proper walk / run cycle, in the sagittal plane
-function stepCycle(o,ph,amp,armAmp,knee){
-  const sn=Math.sin(ph), cs=Math.sin(ph+Math.PI);
-  o.legLF=sn*amp; o.legRF=cs*amp;
-  o.kneeL=-Math.max(0,-sn)*knee-0.08; o.kneeR=-Math.max(0,-cs)*knee-0.08;
-  o.armLF=cs*armAmp; o.armRF=sn*armAmp;
-  o.elbowL=o.elbowR=-0.30-0.18*Math.abs(sn);
-  o.legL=-0.07; o.legR=0.07;
-  o.armL=-0.16; o.armR=0.16;
+// frontal run: legs trade foreshortening, arms trade places
+function stepCycle(o,ph,amp,armAmp){
+  const sn=Math.sin(ph), cs=-sn;
+  o.legL=-0.08+sn*amp*0.35; o.legR=0.08+sn*amp*0.35;
+  o.legLScale=1-0.22*Math.max(0,sn); o.legRScale=1-0.22*Math.max(0,cs);
+  o.armL=-(0.30+armAmp*0.5)-cs*armAmp*0.6; o.armR=(0.30+armAmp*0.5)-sn*armAmp*0.6;
+  o.armLScale=1-0.18*Math.max(0,cs); o.armRScale=1-0.18*Math.max(0,sn);
 }
 
 const EXPR_KEYS=[
-  [[0.00,'jump'],[0.62,'stand'],[0.94,'jump'],[1.56,'jump'],[2.18,'jump']],
-  [[2.70,'wave'],[4.05,'jump'],[5.10,'wave']],
+  [[0.00,'jump'],[0.62,'stand'],[0.94,'cheer'],[2.10,'jump']],
+  [[2.70,'wave'],[4.05,'cheer'],[5.10,'wave']],
   [[5.40,'sit']],
   [[7.80,'stand'],[8.18,'reach'],[9.55,'hold2']],
   [[10.20,'hold2'],[11.22,'shy']],
-  [[12.40,'jump']],
+  [[12.40,'cheer'],[13.90,'jump']],
   [[14.80,'shy']],
   [[16.80,'hold2'],[17.18,'present']],
-  [[19.40,'stand'],[20.90,'wave'],[22.30,'stand']]
+  [[19.40,'stand'],[20.90,'cheer'],[22.30,'stand']]
 ];
-
 const LANDINGS=[
   {t:0.60,x:0.0,z:-8.0,p:1.00},{t:1.14,x:0.0,z:-8.0,p:0.42},
   {t:1.76,x:0.0,z:-8.0,p:0.38},{t:2.38,x:0.0,z:-8.0,p:0.34},
@@ -399,160 +390,118 @@ const LANDINGS=[
 
 function charXform(t,si){
   const s=SH[si], u=clamp((t-s.t0)/(s.t1-s.t0)), lt=t-s.t0;
-  const o={x:0,y:0,z:-8,ry:0,sq:0,lean:0,pitch:0,spine:0,spineX:0,head:0,headX:0,headY:0,
-           tail:0,tailX:0,armL:0,armR:0,armLF:0,armRF:0,elbowL:0,elbowR:0,
-           legL:0,legR:0,legLF:0,legRF:0,kneeL:0,kneeR:0,ankleL:0,ankleR:0,sc:1,poms:true};
+  const o={x:0,y:0,z:-8,ry:0,sq:0,lean:0,spine:0,head:0,headNod:0,tail:0,
+           armL:0,armR:0,legL:0,legR:0,armLScale:1,armRScale:1,legLScale:1,legRScale:1,
+           torsoBend:0,sc:1,poms:true,hideArms:false};
   const br=0.018*Math.sin(t*2.3+si);
   if(si===0){
     const fall=pr(lt,0.06,0.60), h=hops(lt,0.72,0.62,0.62);
-    o.z=-8.0; o.ry=0.10;
+    o.z=-8.0;
     o.y=(fall<1? 9.6*(1-fall*fall) : h.y);
-    if(fall<1){
-      o.sq=0.22; o.lean=-0.03; o.pitch=-0.10;
-      o.armL=-2.15; o.armR=2.15; o.armLF=-0.35; o.armRF=-0.35;
-      o.legL=-0.30; o.legR=0.30; o.legLF=0.55; o.legRF=0.40;
-      o.kneeL=-0.75; o.kneeR=-0.60; o.spineX=-0.12; o.headX=0.16;
-    } else if(lt<0.72){
-      const k=pr(lt,0.60,0.72);
+    if(fall<1){ o.sq=0.22; o.armL=-2.10; o.armR=2.10; o.legL=-0.28; o.legR=0.30;
+      o.legLScale=o.legRScale=0.86; o.spine=-0.04; o.head=0.06; }
+    else if(lt<0.72){ const k=pr(lt,0.60,0.72);
       o.sq=-0.30*Math.exp(-k*3.6)*Math.cos(k*8.4);
       o.armR=lerp(1.90,0.18,eOut(k)); o.armL=-o.armR;
-      o.legL=lerp(-0.55,-0.08,eOut(k)); o.legR=lerp(0.55,0.08,eOut(k));
-      o.kneeL=o.kneeR=lerp(-1.15,-0.10,eOut(k));
-      o.spineX=lerp(0.24,0.02,k); o.headX=lerp(-0.22,0.02,k);
-    } else { o.sq=h.sq; bounceLimbs(o,h,0.85);
-      o.spineX=-0.05*h.air; o.headX=0.06*h.air;
-      const sh2=Math.sin((lt-0.72)*23.0)*0.20*clamp((lt-0.80)*2.2);
-      o.armL-=sh2; o.armR+=sh2; o.armLF-=sh2*0.5; o.armRF-=sh2*0.5; }
-    o.lean+=-0.03+0.03*Math.sin(Math.max(0,lt-0.7)*3.0);
+      o.legL=lerp(-0.50,-0.08,eOut(k)); o.legR=lerp(0.50,0.08,eOut(k));
+      o.headNod=lerp(0.9,0,eOut(k)); }
+    else { o.sq=h.sq; bounceLimbs(o,h,0.85); o.headNod=0.25*h.air;
+      // cheer shake once she is up: fast small beats the overlap turns into pom swings
+      const sh2=Math.sin((lt-0.72)*23.0)*0.22*clamp((lt-0.85)*2.2);
+      o.armL-=sh2; o.armR+=sh2; }
+    o.lean=-0.03+0.03*Math.sin(Math.max(0,lt-0.7)*3.0);
   } else if(si===1){
     const e=eIO(u), run=lt*7.2;
     o.x=lerp(0.85,-0.20,e)+Math.sin(run*0.5)*0.08;
     o.z=lerp(-19.4,-9.0,e);
     o.y=Math.abs(Math.sin(run))*0.24;
     o.sq=-0.11*Math.pow(Math.abs(Math.cos(run)),3)+0.07*Math.abs(Math.sin(run));
-    stepCycle(o,run,0.72,0.85,1.05);
-    o.pitch=-0.16; o.spineX=0.10+0.05*Math.sin(run*2);
-    o.headX=-0.10+0.05*Math.sin(run*2+0.8);
-    o.ry=0.03+0.10*Math.sin(run*0.5);
+    stepCycle(o,run,0.62,0.55);
+    o.lean=-0.05+0.05*Math.sin(run*0.5); o.spine=0.05*Math.sin(run*2);
+    o.head=-0.04+0.05*Math.sin(run*2+0.8); o.headNod=0.15+0.12*Math.sin(run*2);
+    o.ry=0.05;
   } else if(si===2){
-    o.x=-0.62; o.z=-11.9; o.ry=0.52;
+    o.x=-0.62; o.z=-11.9; o.ry=0.40;
     const b=Math.sin(lt*1.5), b2=Math.sin(lt*2.9+1.1);
-    o.y=-0.40;
-    o.legLF=-1.30-0.04*b; o.legRF=-1.30-0.04*b;
-    o.kneeL=1.02+0.05*b; o.kneeR=1.08+0.05*b;
-    o.legL=-0.26; o.legR=0.30;
-    o.ankleL=o.ankleR=0.45;
-    o.armL=-0.52-0.08*b2; o.armR=0.50+0.08*b2;
-    o.armLF=0.30; o.armRF=0.26; o.elbowL=-0.35; o.elbowR=-0.32;
-    o.spineX=-0.10+0.05*b; o.headX=0.12+0.06*b2; o.headY=0.10*b;
+    o.y=-0.42; o.legL=-1.16-0.05*b; o.legR=1.22+0.05*b; o.legLScale=o.legRScale=0.80;
+    o.armL=-0.52-0.10*b2; o.armR=0.50+0.10*b2;
+    o.spine=-0.06+0.05*b; o.head=0.10+0.07*b2; o.headNod=0.15+0.10*b;
     o.sq=-0.03+0.04*Math.sin(lt*2.2)+br;
   } else if(si===3){
     o.poms=false;
     const walk=pr(lt,0.00,0.78), e=eIO(walk);
-    o.x=lerp(6.05,5.44,e); o.z=lerp(-8.35,-7.45,e); o.ry=-0.62;
-    if(walk<1){
-      const ph=lt*7.6; stepCycle(o,ph,0.46,0.52,0.80);
-      o.y=Math.abs(Math.sin(ph))*0.10; o.pitch=-0.10; o.spineX=0.06;
-    } else {
-      const l2=lt-0.78;
+    o.x=lerp(6.05,5.44,e); o.z=lerp(-8.35,-7.45,e); o.ry=-0.24;
+    if(walk<1){ const ph=lt*7.6; stepCycle(o,ph,0.42,0.30);
+      o.y=Math.abs(Math.sin(ph))*0.10; o.lean=-0.10; }
+    else { const l2=lt-0.78;
       const dt1=pr(l2,0.00,0.20), dt2=pr(l2,0.20,0.48);
       const rch=eOut(pr(l2,0.42,1.05))*(1-pr(l2,1.55,1.95));
       o.y=Math.abs(Math.sin(l2*2.0))*0.04;
-      o.pitch=-0.05-0.10*dt1+0.26*dt2;
-      o.spineX=0.05+0.26*dt2;
-      o.headX=0.22*dt1-0.34*dt2+0.05*Math.sin(l2*1.9);
-      o.armR=lerp(0.18,0.62,rch); o.armRF=lerp(-0.05,-1.30,rch);
-      o.elbowR=lerp(-0.25,-0.42,rch);
-      o.armL=-0.20; o.armLF=0.25; o.elbowL=-0.30;
-      o.legL=-0.09; o.legR=0.09; o.kneeL=o.kneeR=-0.10;
-      o.sq=br;
-    }
+      o.lean=-0.08-0.10*dt1+0.20*dt2; o.spine=0.05+0.22*dt2;
+      o.head=0.18*dt1-0.30*dt2+0.05*Math.sin(l2*1.9); o.headNod=-0.3*dt1+0.5*dt2;
+      o.armR=lerp(0.16,1.34,rch); o.armL=lerp(-0.16,-0.42,rch);
+      o.legL=-0.10; o.legR=0.12; o.torsoBend=0.09*dt2; o.sq=br; }
   } else if(si===4){
     o.x=4.86; o.z=-6.78; o.ry=-0.20; o.poms=false;
     const b=Math.sin(lt*1.7), b2=Math.sin(lt*2.4+0.7);
     o.y=0.02+0.04*Math.abs(Math.sin(lt*2.2));
     o.sq=-0.02+0.04*Math.sin(lt*2.2)+br;
-    o.armR=0.42+0.04*b2; o.armRF=-0.72+0.05*b2; o.elbowR=-1.15;
-    o.armL=-0.40-0.04*b; o.armLF=-0.70; o.elbowL=-1.10;
-    o.legL=-0.08; o.legR=0.08; o.kneeL=o.kneeR=-0.08;
-    o.spineX=0.06+0.04*b; o.headX=-0.12+0.06*b2; o.headY=0.10*b;
-    o.lean=0.03*b;
+    o.armR=1.16+0.09*b2; o.armL=-0.60-0.08*b;
+    o.legL=-0.08-0.03*b; o.legR=0.10+0.03*b;
+    o.spine=0.06+0.05*b; o.head=-0.10+0.07*b2; o.headNod=0.2+0.1*b;
+    o.lean=-0.05+0.04*b;
   } else if(si===5){
     const h=hops(lt,0.10,0.80,1.95);
-    o.x=Math.sin(lt*1.4)*0.22; o.z=-14.4; o.ry=0.10*Math.sin(lt*1.1);
+    o.x=Math.sin(lt*1.4)*0.22; o.z=-14.4; o.ry=0.02+0.10*Math.sin(lt*1.4);
     o.y=h.y; o.sq=h.sq;
     bounceLimbs(o,h,1.15);
     const sh3=Math.sin(lt*21.0)*0.24;
-    o.armL-=sh3; o.armR+=sh3; o.armLF-=sh3*0.45; o.armRF-=sh3*0.45;
-    o.spineX=-0.07*h.air; o.headX=0.07*h.air;
-    o.lean=0.05*Math.sin(lt*2.6);
+    o.armL-=sh3; o.armR+=sh3;
+    o.headNod=0.25*h.air; o.lean=-0.05+0.06*Math.sin(lt*2.6);
   } else if(si===6){
     const b=Math.sin(lt*1.35), b2=Math.sin(lt*2.1+0.6);
     const h=hops(lt,1.05,0.44,0.30);
-    o.x=0.02+0.09*b; o.z=-13.2; o.ry=0.18+0.14*Math.sin(lt*0.9);
+    o.x=0.02+0.10*b; o.z=-13.2; o.ry=0.10+0.07*Math.sin(lt*0.9);
     o.y=(lt>1.05&&lt<1.49?h.y:0)+0.03*Math.abs(Math.sin(lt*2.0));
-    o.poms=false;
-    // hands to the cheeks
-    o.armL=-0.72-0.04*b2; o.armR=0.70+0.04*b2;
-    o.armLF=-0.42; o.armRF=-0.42;
-    o.elbowL=-2.30; o.elbowR=-2.30;
-    o.legL=-0.10-0.03*b; o.legR=0.11+0.03*b; o.kneeL=o.kneeR=-0.10;
-    o.spineX=-0.05+0.05*b; o.headX=-0.10+0.06*b2; o.headY=0.14*b;
-    o.lean=0.05*b;
-    o.sq=-0.03+0.04*Math.sin(lt*2.0)+br;
+    o.hideArms=true; o.poms=false;
+    o.legL=-0.12-0.05*b; o.legR=0.14+0.05*b;
+    o.spine=-0.05+0.06*b; o.head=-0.09+0.08*b2; o.headNod=0.25+0.15*b;
+    o.lean=-0.07+0.05*b; o.sq=-0.04+0.05*Math.sin(lt*2.0)+br;
   } else if(si===7){
     const anti=pr(lt,0.14,0.36), rise=eBack(pr(lt,0.36,1.10));
     const set=1-pr(lt,1.10,1.55), b=Math.sin(lt*1.8);
-    o.x=HERO_X-0.30; o.z=HERO_Z+0.30; o.ry=0.18; o.poms=false;
+    o.x=HERO_X-0.62; o.z=HERO_Z+0.55; o.ry=0.04; o.poms=false;
     o.y=HERO_TOP+0.04*Math.abs(Math.sin(lt*2.0));
     o.sq=-0.18*anti*(1-rise)+0.14*rise*set+br;
-    o.armR=lerp(0.18,1.02,rise); o.armRF=lerp(-0.10,-2.05,rise)-0.30*anti*(1-rise);
-    o.elbowR=lerp(-0.30,-0.18,rise);
-    o.armL=lerp(-0.16,-0.72,rise)-0.06*b; o.armLF=lerp(0.05,0.55,rise);
-    o.elbowL=-0.35;
-    o.legL=-0.10-0.03*b; o.legR=0.11+0.03*b;
-    o.kneeL=o.kneeR=lerp(-0.30,-0.10,rise);
-    o.spineX=0.16*anti-0.14*rise+0.04*b;
-    o.headX=0.18*anti-0.16*rise+0.04*b;
-    o.headY=-0.12*rise;
+    o.armR=lerp(0.14,2.30,rise)-0.26*anti*(1-rise);
+    o.armL=lerp(-0.10,-0.66,rise)-0.08*b;
+    o.legL=-0.10-0.04*b; o.legR=0.12+0.04*b;
+    o.spine=0.10*anti-0.10*rise+0.04*b;
+    o.head=0.14*anti-0.12*rise+0.05*b; o.headNod=0.6*anti-0.35*rise;
+    o.lean=-0.04+0.04*b;
   } else {
     const app=pr(t,20.05,20.75), idle=Math.max(0,t-19.9);
     const b=Math.sin(idle*1.8);
-    o.x=lerp(-2.34,-1.285,eBack(app)); o.z=1.2; o.ry=0.34;
+    o.x=lerp(-2.34,-1.285,eBack(app)); o.z=1.2; o.ry=0.24;
     o.y=0.02*Math.abs(Math.sin(idle*2.2));
     o.sq=-0.02+0.03*Math.sin(idle*2.2)+br;
     const wv=(t>20.90&&t<22.30)?1:0;
     const sh4=wv*Math.sin(idle*19.0)*0.22;
-    o.armR=lerp(0.16,1.42,wv)+sh4; o.armRF=lerp(-0.05,-1.20,wv)-sh4*0.4;
-    o.elbowR=lerp(-0.28,-0.35,wv);
-    o.armL=-0.18-0.05*b-sh4*0.8; o.armLF=0.10-sh4*0.3;
-    o.legL=-0.08; o.legR=0.09; o.kneeL=o.kneeR=-0.08;
-    o.spineX=0.03*b; o.headX=-0.06+0.05*b; o.headY=0.10*b;
+    o.armR=lerp(0.16,2.10,wv)+sh4; o.armL=lerp(-0.16,-1.60,wv)-sh4*0.8;
+    o.legL=-0.08; o.legR=0.09;
+    o.spine=0.04*b; o.head=-0.05+0.06*b; o.headNod=0.15+0.1*b;
     o.sc=0.28;
   }
   return o;
 }
 
-/* ------------------------------------------------------------------
-   Overlap layer. charXform gives the "intent" pose. Everything soft on
-   the body then reaches that intent late and overshoots, which is the
-   difference between a rig being posed and a character moving.
-
-   For each channel we sample the intent over a short history window and
-   convolve it with:
-     drag(tau)  = exponential kernel  -> follow-through / lag
-     ring(tau)  = damped sine on the second derivative -> a real spring
-                  response, so the part settles instead of snapping.
-   Both are pure functions of t, so any frame can be rendered on its own.
-   ------------------------------------------------------------------ */
+/* ---- overlap layer: pure functions of t, so any frame stands alone ---- */
 const NS=15, WIN=0.46;
 function makeOverlap(t,si,t0){
   const dt=WIN/(NS-1), S=[];
   for(let i=0;i<NS;i++) S.push(charXform(Math.max(t0,t-i*dt),si));
   return {
     S:S, dt:dt,
-    now:function(k){ return S[0][k]; },
-    // exponentially weighted history: the part arrives late
     drag:function(k,tc){
       const h=Math.max(this.dt*0.5,tc); let a=0,w=0;
       for(let i=0;i<NS;i++){ const e=Math.exp(-(i*this.dt)/h); a+=S[i][k]*e; w+=e; }
@@ -560,7 +509,6 @@ function makeOverlap(t,si,t0){
     },
     vel:function(k){ return (S[0][k]-S[2][k])/(2*this.dt); },
     acc:function(k){ return (S[0][k]-2*S[1][k]+S[2][k])/(this.dt*this.dt); },
-    // damped-spring impulse response driven by the channel's acceleration
     ring:function(k,freq,damp,gain,lim){
       let a=0;
       for(let i=1;i<NS-1;i++){
@@ -579,71 +527,38 @@ function animChar(t,si){
   const s=SH[si];
   const O=makeOverlap(t,si,s.t0);
   const c=O.S[0];
+  const vx=O.vel('x'), ax=O.acc('x'), ay=O.acc('y'), vry=O.vel('ry');
 
-  const vx=O.vel('x'), vy=O.vel('y'), vz=O.vel('z');
-  const ax=O.acc('x'), ay=O.acc('y');
-  const vry=O.vel('ry');
+  const spine = O.drag('spine',0.035)+cl2(-ax*0.0016,0.14)+O.ring('x',34,11,0.00055,0.10);
+  const lean  = O.drag('lean',0.03)+cl2(-ax*0.0022,0.13);
+  const headZ = O.drag('head',0.085)+cl2(-ax*0.0022,0.17)+O.ring('x',26,9,0.0011,0.16);
+  const headNod = O.drag('headNod',0.085)+cl2(-ay*0.0012,0.35)+O.ring('y',24,8.5,0.0008,0.30);
+  const tailZ = O.drag('tail',0.175)+cl2(-vry*0.50-vx*0.075,0.85)
+                +O.ring('x',17,5.2,0.0044,0.62)+O.ring('head',15,5.0,0.30,0.35)
+                +O.ring('y',16,5.0,0.0030,0.40)
+                +0.10*Math.sin(t*3.1)+0.05*Math.sin(t*5.3+1.2);
 
-  // --- torso: leads, but leans into acceleration and drags a little
-  const spine  = O.drag('spine',0.035) + cl2(-ax*0.0016,0.14)
-                 + O.ring('x',34,11,0.00055,0.10);
-  const spineX = O.drag('spineX',0.035) + cl2(-O.acc('z')*0.0013,0.13);
-  const lean   = O.drag('lean',0.03) + cl2(-ax*0.0022,0.13);
-  const pitch  = O.drag('pitch',0.03) + cl2(-O.acc('z')*0.0018,0.13);
-
-  // --- head: arrives later than the chest and rings
-  const headZ = O.drag('head',0.085) + cl2(-ax*0.0022,0.17)
-                + O.ring('x',26,9,0.0011,0.16);
-  const headX = O.drag('headX',0.085) + cl2(-ay*0.0016,0.15)
-                + O.ring('y',24,8.5,0.0010,0.15);
-  const headY = O.drag('headY',0.085) + cl2(-vry*0.11,0.14);
-
-  // --- twin-tail: the heaviest thing on her, so the most lag and swing
-  const tailZ = O.drag('tail',0.175)
-                + cl2(-vry*0.50 - vx*0.075, 0.85)
-                + O.ring('x',17,5.2,0.0044,0.62)
-                + O.ring('head',15,5.0,0.30,0.35)
-                + 0.10*Math.sin(t*3.1) + 0.05*Math.sin(t*5.3+1.2);
-  const tailX = O.drag('tailX',0.175)
-                + cl2(O.vel('headX')*0.34 + vz*0.05, 0.75)
-                + O.ring('y',16,5.0,0.0040,0.60)
-                + 0.08*Math.sin(t*2.4+0.9);
-
-  // --- limbs: drag on the far end of each chain
   const armL=O.drag('armL',0.045), armR=O.drag('armR',0.045);
-  const armLF=O.drag('armLF',0.045), armRF=O.drag('armRF',0.045);
-  const elbowL=O.drag('elbowL',0.085)+O.ring('armL',22,8,0.055,0.30);
-  const elbowR=O.drag('elbowR',0.085)+O.ring('armR',22,8,0.055,0.30);
-  const kneeL=O.drag('kneeL',0.065)+O.ring('legLF',22,8,0.045,0.26);
-  const kneeR=O.drag('kneeR',0.065)+O.ring('legRF',22,8,0.045,0.26);
-  const ankleL=O.drag('ankleL',0.090)+O.ring('kneeL',20,7,0.055,0.28);
-  const ankleR=O.drag('ankleR',0.090)+O.ring('kneeR',20,7,0.055,0.28);
+  const armLBend=O.ring('armL',22,8,0.030,0.14), armRBend=O.ring('armR',22,8,0.030,0.14);
+  const legLBend=O.ring('legL',22,8,0.026,0.12), legRBend=O.ring('legR',22,8,0.026,0.12);
 
-  // --- pom-poms: floppy, so they lag hard and keep bouncing
-  const pomBase=(side)=>{
-    const a=side<0?'armL':'armR', f=side<0?'armLF':'armRF';
-    return O.ring(a,15,4.6,0.055,0.75)+O.ring(f,15,4.6,0.050,0.70)
-           +O.ring('y',14,4.4,0.0050,0.55)+0.06*Math.sin(t*4.1+side);
-  };
-  const pomL=pomBase(-1), pomR=pomBase(1);
-  const pomLX=O.ring('armLF',14,4.4,0.055,0.70)+O.ring('x',13,4.2,0.0040,0.50);
-  const pomRX=O.ring('armRF',14,4.4,0.055,0.70)+O.ring('x',13,4.2,0.0040,0.50);
+  const pomL=O.ring('armL',15,4.6,0.075,0.80)+O.ring('y',14,4.4,0.0055,0.55)+0.06*Math.sin(t*4.1);
+  const pomR=O.ring('armR',15,4.6,0.075,0.80)-O.ring('y',14,4.4,0.0055,0.55)+0.06*Math.sin(t*4.1+2);
 
-  // --- squash and stretch reads the vertical acceleration of the whole body
-  const sq=c.sq + cl2(-ay*0.0050,0.16) + O.ring('y',30,10,0.0016,0.10);
+  const sq=c.sq+cl2(-ay*0.0050,0.16)+O.ring('y',30,10,0.0016,0.10);
 
   posePuppet(char,{
-    expr:exprAt(t,EXPR_KEYS[si]),
-    squash:sq, lean:lean, pitch:pitch,
-    spine:spine, spineX:spineX, spineY:0,
-    head:headZ, headX:headX, headY:headY,
-    tail:tailZ, tailX:tailX,
-    armL:armL, armR:armR, armLF:armLF, armRF:armRF,
-    elbowL:elbowL, elbowR:elbowR,
-    legL:O.drag('legL',0.030), legR:O.drag('legR',0.030),
-    legLF:O.drag('legLF',0.030), legRF:O.drag('legRF',0.030),
-    kneeL:kneeL, kneeR:kneeR, ankleL:ankleL, ankleR:ankleR,
-    poms:c.poms!==false, pomL:pomL, pomR:pomR, pomLX:pomLX, pomRX:pomRX
+    expr:exprAtP(t,EXPR_KEYS[si]),
+    squash:sq, lean:lean, spine:spine, head:headZ, headNod:headNod, tail:tailZ,
+    armL:armL, armR:armR,
+    armLScale:O.drag('armLScale',0.04), armRScale:O.drag('armRScale',0.04),
+    legL:O.drag('legL',0.03), legR:O.drag('legR',0.03),
+    legLScale:O.drag('legLScale',0.03), legRScale:O.drag('legRScale',0.03),
+    torsoBend:c.torsoBend+cl2(c.lean*0.35-vx*0.012,0.16),
+    armLBend:armLBend, armRBend:armRBend, legLBend:legLBend, legRBend:legRBend,
+    tailBend:tailZ*0.20,
+    hideArms:c.hideArms, poms:c.poms!==false, pomL:pomL, pomR:pomR,
+    by:0, bx:0
   });
 
   char.position.set(c.x,c.y,c.z);
@@ -652,11 +567,6 @@ function animChar(t,si){
   rig.key.position.set(c.x-4.5,c.y+9,c.z+8);
   rig.key.target.position.set(c.x,c.y+1.6,c.z);
   rig.key.target.updateMatrixWorld();
-}
-
-function exprAt(t,keys){
-  let i=0; for(let k=0;k<keys.length;k++) if(t>=keys[k][0]) i=k;
-  return keys[i][1];
 }
 
 function updateDust(t){
@@ -691,29 +601,29 @@ function camAt(t,si){
   const s=SH[si], u=clamp((t-s.t0)/(s.t1-s.t0)), e=eIO(u), lt=t-s.t0;
   switch(si){
     // drop-in: swing round to the front as she lands
-    case 0: orb(0,0,-8.0, lerp(10.0,8.4,e), lerp(-0.58,-0.12,e),
-                lerp(2.7,2.05,e), lerp(2.3,1.75,e), 34); break;
+    case 0: orb(0,0,-8.0, lerp(10.6,9.2,e), lerp(-0.34,0.00,e),
+                lerp(2.7,2.15,e), lerp(2.2,1.85,e), 34); break;
     // run at camera, drifting off the axis
     case 1: setCam(lerp(0.8,-1.7,e),lerp(3.8,2.8,e),lerp(5.2,1.6,e),
                    0,lerp(2.0,2.2,e),lerp(-13,-8,e), 34); break;
     // sitting by the pumpkin: a full 65 degree arc round her
-    case 2: orb(-0.60,0,-11.9, lerp(9.6,8.2,e), lerp(-0.92,0.30,eIO(u)),
+    case 2: orb(-0.60,0,-11.9, lerp(9.6,8.2,e), lerp(-0.50,0.22,eIO(u)),
                 lerp(2.7,2.05,e), lerp(1.25,1.05,e), 33); break;
     // doorstep, arcing in
-    case 3: orb(5.44,0,-7.45, lerp(9.8,8.0,e), lerp(-1.10,-0.74,e),
+    case 3: orb(5.44,0,-7.45, lerp(9.8,8.0,e), lerp(-0.62,-0.30,e),
                 lerp(3.4,2.7,e), lerp(1.60,1.40,e), 36); break;
     // the mystery bottle, orbiting the pair
-    case 4: orb(5.10,0,-6.30, lerp(8.2,7.1,e), lerp(-0.92,-0.30,eIO(u)),
+    case 4: orb(5.10,0,-6.30, lerp(8.2,7.1,e), lerp(-0.55,-0.12,eIO(u)),
                 lerp(2.6,2.25,e), lerp(1.55,1.42,e), 37); break;
     // trick or treat, low and swinging
-    case 5: orb(0,0,-14.4, lerp(11.2,9.8,e), lerp(0.40,-0.34,eIO(u)),
+    case 5: orb(0,0,-14.4, lerp(11.2,9.8,e), lerp(0.30,-0.26,eIO(u)),
                 lerp(2.2,3.0,e), lerp(2.6,2.5,e), 35); break;
     // bashful close-up, slow drift round
-    case 6: orb(0.02,0,-13.2, lerp(7.4,6.6,e), lerp(0.50,-0.18,eIO(u)),
+    case 6: orb(0.02,0,-13.2, lerp(7.4,6.6,e), lerp(0.34,-0.14,eIO(u)),
                 lerp(2.6,2.35,e), lerp(1.95,1.85,e), 32); break;
     // hero: a 75 degree sweep round her as the bottle comes up
     case 7: orb(HERO_X-0.30,0,HERO_Z+0.30, lerp(8.6,7.4,eIO(u)),
-                lerp(-0.78,0.62,eIO(u)),
+                lerp(-0.42,0.42,eIO(u)),
                 HERO_TOP+lerp(0.50,1.30,e), HERO_TOP+lerp(0.95,1.25,e), 32); break;
     default: setCam(0,2.6,9.0, 0,2.3,0, 42); break;
   }
@@ -845,7 +755,7 @@ window.render=function(t){
     renderer.toneMappingExposure=1.28;
   }
   if(!CAPS){ updateWorld(t); updateDust(t); animChar(t,si); camAt(t,si); camShake(t);
-             updateBottle(t,si); renderer.render(scene,camera); }
+             faceCamera(char,camera); updateBottle(t,si); renderer.render(scene,camera); }
   updateUI(t);
 };
 </script></body></html>

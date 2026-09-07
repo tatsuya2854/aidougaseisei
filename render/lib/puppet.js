@@ -20,7 +20,7 @@ const FOOT_Y = 776;             // source pixel row the feet stand on
 const CX = 248;                 // source pixel column of the body centreline
 let S = HW / 775;               // world units per source pixel
 
-const EXPR = ['stand', 'jump', 'reach', 'sit', 'present', 'wave', 'hold2', 'shy'];
+const EXPR = ['stand', 'jump', 'reach', 'sit', 'present', 'wave', 'hold2', 'shy', 'cheer'];
 const PART = ['tail', 'armL', 'armR', 'legL', 'legR', 'torso'];
 
 /* draw order, back to front */
@@ -40,11 +40,13 @@ export async function loadPuppet() {
   const meta = await fetch('/assets/parts/parts.json').then(r => r.json());
   const loader = new THREE.TextureLoader();
   const parts = {}, heads = {};
+  const poms = {};
   await Promise.all([
     ...PART.map(async n => { parts[n] = await tex(loader, '/assets/parts/' + n + '.png'); }),
-    ...EXPR.map(async n => { heads[n] = await tex(loader, '/assets/parts/head_' + n + '.png'); })
+    ...EXPR.map(async n => { heads[n] = await tex(loader, '/assets/parts/head_' + n + '.png'); }),
+    ...['L', 'R'].map(async n => { poms[n] = await tex(loader, '/assets/parts/pom' + n + '.png'); })
   ]);
-  return { meta, parts, heads };
+  return { meta, parts, heads, poms };
 }
 
 function shadowTex() {
@@ -114,14 +116,36 @@ export function buildPuppet(A) {
   shadow.scale.set(1.55, 0.58, 1);
   root.add(shadow);
 
-  // a handle the props can be parented to: the right hand, at rest
-  const hand = new THREE.Group();
-  hand.position.set(0, -(P.armR.y + P.armR.h - R.armR.pivot[1]) * S + 0.06, 0.05);
-  armR.add(hand);
+  // hand handles, at the bottom of each arm plate
+  const handR = new THREE.Group();
+  handR.position.set((P.armR.x + P.armR.w * 0.72 - R.armR.pivot[0]) * S,
+                     -(P.armR.y + P.armR.h - R.armR.pivot[1]) * S + 0.10, 0.05);
+  armR.add(handR);
+  const handL = new THREE.Group();
+  handL.position.set((P.armL.x + P.armL.w * 0.28 - R.armL.pivot[0]) * S,
+                     -(P.armL.y + P.armL.h - R.armL.pivot[1]) * S + 0.10, 0.05);
+  armL.add(handL);
+
+  // pom-poms, cut from the cheer reference and scaled by hood width to match
+  const pk = S * (HOOD_REF / (meta.poms ? meta.poms.hood : 693));
+  const poms = [];
+  for (const [side, hnd] of [['L', handL], ['R', handR]]) {
+    const b = meta.poms[side];
+    const geo = new THREE.PlaneGeometry(1, 1, 4, 4);
+    const m = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({
+      map: A.poms[side], transparent: true, depthWrite: false, fog: false,
+      alphaTest: 0.01, side: THREE.DoubleSide }));
+    m.scale.set(b.w * pk, b.h * pk, 1);
+    m.position.set(side === 'L' ? -0.10 : 0.10, -0.06, 0.16);
+    m.renderOrder = 7.5;
+    m.userData.base = Float32Array.from(geo.attributes.position.array);
+    m.userData.baseScaleX = m.scale.x; m.userData.baseScaleY = m.scale.y;
+    hnd.add(m); poms.push(m);
+  }
 
   root.userData = { body, N, mesh, meta, heads: A.heads, expr: null,
-                    shadow, hands: [hand, hand], hand,
-                    poms: [], arms: [], legs: [] };
+                    shadow, hands: [handR, handL], hand: handR,
+                    poms: poms, arms: [], legs: [] };
   setExpr(root, 'stand');
   return root;
 }
@@ -140,6 +164,7 @@ export function setExpr(root, name) {
   m.scale.set(w, ht, 1);
   m.position.x = (0.5 - h.px) * w;
   m.position.y = (h.py - 0.5) * ht;
+  m.userData.baseScaleY = ht; m.userData.basePosY = m.position.y;
 }
 
 /* soft bend inside one plate: s = 0 at the joint end, 1 at the free end */
@@ -205,6 +230,30 @@ export function posePuppet(root, P) {
   M.armL.visible = M.armR.visible = !P.hideArms;
   N.legL.rotation.z = P.legL || 0;
   N.legR.rotation.z = P.legR || 0;
+  // 2D foreshortening: a limb swinging toward camera reads shorter
+  for (const [m, sc] of [[M.armL, P.armLScale], [M.armR, P.armRScale],
+                         [M.legL, P.legLScale], [M.legR, P.legRScale]]) {
+    if (sc == null) continue;
+    if (m.userData.baseScaleY == null) { m.userData.baseScaleY = m.scale.y; m.userData.basePosY = m.position.y; }
+    m.scale.y = m.userData.baseScaleY * sc * (m === M.armL || m === M.armR ? 1 : 1);
+    m.position.y = m.userData.basePosY * sc;
+  }
+  // head nod: the plate compresses and drops a touch
+  const nod = P.headNod || 0;
+  M.head.scale.y = M.head.userData.baseScaleY * (1 - nod * 0.10);
+  M.head.position.y = M.head.userData.basePosY - nod * 0.05;
+  // pom-poms: hang, swing, and squash a little when they whip
+  if (u.poms.length) {
+    for (let i = 0; i < 2; i++) {
+      const m = u.poms[i];
+      m.visible = P.poms !== false && !P.hideArms;
+      const j = i === 0 ? (P.pomL || 0) : (P.pomR || 0);
+      m.rotation.z = j;
+      const k = 1 + Math.abs(j) * 0.08;
+      m.scale.x = m.userData.baseScaleX * k;
+      m.scale.y = m.userData.baseScaleY * (1 / k);
+    }
+  }
 
   bendMesh(M.torso, P.torsoBend || 0, 0);
   // limbs curve as the joint opens, so they never read as straight sticks
