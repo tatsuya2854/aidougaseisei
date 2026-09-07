@@ -29,14 +29,18 @@ HOST   = 'https://generativelanguage.googleapis.com'
 TOKENFILE = os.path.expanduser('~/.gcp_access_token')
 
 STYLE = (
-  "3D toy figure render, soft vinyl and matte plastic surfaces, collectible figure aesthetic. "
-  "Pastel dusk palette of lavender, soft peach and warm orange. Soft diffused lighting, lifted "
-  "shadows, low contrast, shallow depth of field with creamy bokeh. A cute chibi character in an "
-  "orange cat-hood halloween costume: stitched cat ears, small bats across the brow, a black floppy "
-  "tip with a candy corn, a sleeveless orange top with a black jack-o'-lantern face, black and white "
-  "striped sleeves, black shorts with a white cobweb print, white sneakers. "
+  "3D toy figure render, soft vinyl and matte plastic surfaces, collectible designer-toy aesthetic, "
+  "high quality, clean and smooth. Pastel dusk palette of lavender, soft peach and warm orange. "
+  "Soft diffused lighting, lifted shadows, low contrast, shallow depth of field with creamy bokeh. "
+  "A cute chibi character in an orange cat-hood halloween costume: a round yellow-orange hood with "
+  "stitched cat ears and small black bats across the brow, a dark brown twin-tail with a candy corn "
+  "and a bat clip, a sleeveless orange vest with a black jack-o'-lantern face, black and white "
+  "striped sleeves, dark grey shorts with a white cobweb print, white sneakers with a ghost face. "
+  "She holds two big glossy cheer pom-poms, one orange-and-teal and one pink-and-purple, decorated "
+  "with candies and stars, and they swing and jiggle with her movement. "
   "The face must stay exactly as in the input image: closed crescent squinting eyes, thick black "
-  "brows, a wide open smile with a pink tongue, round pink blush. Never open the eyes. "
+  "brows, round pink blush. Never open the eyes, never draw pupils. Keep the character's design, "
+  "proportions and colours identical to the input image in every frame. "
 )
 NEGATIVE = ("open eyes, realistic eyes, pupils, irises, changed facial expression, extra fingers, "
             "text, letters, watermark, morphing face, distorted logo, photorealistic human skin, "
@@ -55,14 +59,14 @@ RATES = {
 CLIP_SECONDS = 8            # Veo returns a fixed-length clip; we trim it afterwards
 
 SHOTS = [
-  ("01", "01_landing",     2.70, "The character has just landed on the cobbled street and bounces lightly in place, pom-poms jiggling. Candy pieces drift slowly past the lens. The camera pushes in very slowly. Gentle secondary motion only."),
-  ("02", "02_run",         2.70, "The character runs cheerfully toward the camera down the cobbled street, under an arch of glowing pumpkins, with a slight up-and-down bounce and swinging arms. The camera dollies back slowly to hold the framing."),
-  ("03", "03_bigpumpkin",  2.40, "The character bobs happily beside a large glowing pumpkin while candle flames flicker in the foreground. Very slow camera drift to the right, warm light flickering softly on the costume."),
-  ("04", "04_doorstep",    2.40, "The character leans in and tilts its head, curiously looking down at the pump bottle sitting on the doorstep. Candies rock gently. The camera creeps forward slightly."),
-  ("05", "05_pump",        2.20, "Close-up. The character slowly reaches a striped-sleeve arm toward the bottle's pump while the bottle glows faintly. The camera holds nearly still, breathing very slightly."),
-  ("06", "06_archjump",    2.40, "The character jumps joyfully under the pumpkin arch, pom-poms flying up, candies bouncing on the ground. Slight low-angle camera rise."),
-  ("07", "07_bustup",      2.00, "Bust-up. The character bobs and giggles while bats glide across the sky far behind and bokeh candy drifts past. The camera is almost static with a tiny handheld float."),
-  ("08", "08_hero",        2.60, "Hero shot. The character stands on top of a giant pumpkin and proudly raises the bottle higher. Candies float upward around it and the sky glows warmer. The camera arcs slowly around to centre the character."),
+  ("01", "01_landing",     2.70, "The character lands on the cobbled street with a soft squash, springs back up and shakes both pom-poms in a happy cheer, bouncing lightly on her toes, the pom-poms jiggling with every beat. Candy pieces drift slowly past the lens. The camera pushes in very slowly."),
+  ("02", "02_run",         2.70, "The character runs cheerfully toward the camera down the cobbled street under an arch of glowing pumpkins, pom-poms in both hands swinging with her arms, a lively up-and-down bounce in her step. The camera dollies back slowly to hold the framing."),
+  ("03", "03_bigpumpkin",  2.40, "The character sits happily beside a large glowing pumpkin, swaying gently side to side with a pom-pom resting in each hand, candle flames flickering in the foreground. Very slow camera drift to the right."),
+  ("04", "04_doorstep",    2.40, "The character, without pom-poms, walks up to a doorstep, stops, and does a curious double take, leaning in and tilting her head at the small white pump bottle sitting on the step. The camera creeps forward slightly."),
+  ("05", "05_pump",        2.20, "Close-up. The character, without pom-poms, holds the small white pump bottle up in both hands and looks at it curiously, then hugs it a little closer, shifting her weight. The camera holds nearly still, breathing very slightly."),
+  ("06", "06_archjump",    2.40, "The character does three big joyful cheer jumps under the pumpkin arch, throwing both pom-poms high on every jump, the pom-poms flying up and flopping back down, candies bouncing on the ground. Slight low-angle camera rise."),
+  ("07", "07_bustup",      2.00, "Bust-up. The character, without pom-poms, presses both hands to her cheeks bashfully and sways, giving a shy little hop, while bats glide across the sky far behind and bokeh candy drifts past. The camera is almost static with a tiny handheld float."),
+  ("08", "08_hero",        2.60, "Hero shot. The character stands on top of a giant pumpkin and, after a small crouch, proudly sweeps the small white pump bottle high above her head with one arm. Candies float upward around her and the sky glows warmer. The camera arcs slowly around to centre her."),
 ]
 
 KEYFILE = os.path.expanduser('~/.gemini_api_key')
