@@ -13,11 +13,11 @@ mkdir -p "$CLIPS" "$WORK" out
 # shot  plate     seconds     (shot 08 is 2.00s of "?" + the composited ending, built separately)
 SHOTS=(
   "01 01_face  1.40"
-  "02 02_stone 2.60"
+  "02 02_stone 2.90"
   "03 03_hands 2.00"
   "04 04_raise 2.20"
   "05 05_pump  2.20"
-  "06 06_sit   2.80"
+  "06 06_sit   3.10"
   "07 07_hug   1.80"
 )
 rm -f "$WORK/list.txt"
@@ -47,8 +47,8 @@ ffmpeg -y -hide_banner -loglevel error -f concat -safe 0 -i "$WORK/list.txt" \
   -c:v libx264 -preset slow -crf 17 -pix_fmt yuv420p "$WORK/video_ref.mp4"
 
 # score: cuts at the shot boundaries, flash 2.0s into shot 08
-python3 audio/make_music.py --dur 21.6 --cuts 1.40,4.00,6.00,8.20,10.40,13.20,15.00 \
-  --pops "" --reveal 17.00 --out "$WORK/score_ref.wav"
+python3 audio/make_music.py --dur 22.2 --cuts 1.40,4.30,6.30,8.50,10.70,13.80,15.60 \
+  --pops "" --reveal 17.60 --out "$WORK/score_ref.wav"
 
 ffmpeg -y -hide_banner -loglevel error -i "$WORK/video_ref.mp4" -i "$WORK/score_ref.wav" \
   -c:v copy -c:a aac -b:a 192k -ar 44100 -shortest -movflags +faststart \
