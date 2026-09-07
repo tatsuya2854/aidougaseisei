@@ -62,27 +62,38 @@ RATES = {
 }
 CLIP_SECONDS = 8            # Veo returns a fixed-length clip; we trim it afterwards
 
-# (number, seed plate, seconds kept in the cut, motion prompt, last-frame plate or None)
+# (number, seed plate, seconds kept in the cut, motion prompt, last-frame plate or None,
+#  [extra negative terms for this shot only])
 # Durations follow the reference video beat for beat.
 SHOTS = [
   ("01", "01_face",  1.40, "Close-up. The character giggles and tilts her head with a small happy bounce, "
         "the hood's cat ears wobbling, then glances down toward something below frame with a curious smile. "
         "Blurred jack-o'-lanterns glow behind her. The camera pushes in very slowly.", None),
   ("02", "02_stone", 2.60, "Top-down view. The character crouches over the small white pump bottle lying on the mossy "
-        "cobblestones among scattered candies, leans in curiously and reaches a hand toward it. A candy rolls "
-        "slightly. The camera drifts down very slowly.", None),
+        "cobblestones among scattered candies, leans in curiously and reaches a hand toward it, then tilts her "
+        "head. A candy rocks slightly. The whole frame stays sharp and clear: nothing passes in front of the "
+        "lens, no foreground objects, no blurred shapes crossing the camera. The camera drifts down very slowly.",
+        None, "foreground bokeh, large blurred circles, out-of-focus blobs over the frame, lens flare, "
+              "objects passing in front of the camera, floating orbs, white glare"),
   ("03", "03_hands", 2.00, "Close-up. Two small hands in striped sleeves hold the white pump bottle with the glowing "
-        "question-mark label up to the camera and turn it very slightly to admire it, the label catching the "
-        "warm pumpkin light. Candle flames flicker on the jack-o'-lanterns behind. The camera holds nearly still.", None),
+        "question-mark label steady in front of the camera and tilt it very slightly to catch the warm pumpkin "
+        "light. Both hands keep a calm, relaxed grip and stay wrapped around the bottle the whole time; the "
+        "fingers do not change shape or let go. Candle flames flicker on the jack-o'-lanterns behind. "
+        "The camera holds nearly still.", None,
+        "deformed hand, claw hand, clenched fist, curled fingers, missing fingers, extra fingers, "
+        "hand letting go, melting fingers"),
   ("04", "04_raise", 2.20, "The character stands on a giant pumpkin and holds the pump bottle high with one arm, "
         "beaming, then bounces on her toes and sways it proudly. Wrapped candies float gently upward around her "
         "in the pastel dusk sky. The camera arcs slowly around her.", None),
   ("05", "05_pump",  2.20, "Macro. A small finger presses the pump and a swirl of soft white cream is dispensed onto "
         "an open palm, thick and glossy, then the finger lifts. Bokeh pumpkins glow warmly in the background. "
         "The camera holds still with a tiny drift.", None),
-  ("06", "06_sit",   2.80, "The character sits on top of a big pumpkin with giant candy lollipops behind her and gently "
-        "rubs cream onto her knee with both hands in slow soothing circles, swaying softly, looking content. "
-        "The camera drifts in very slowly.", None),
+  ("06", "06_sit",   2.80, "The character sits on top of a big pumpkin with giant candy lollipops behind her, both hands "
+        "resting on her knee, and gently rubs her knee in slow soothing circles, swaying softly and tilting her "
+        "head, looking content. The frame stays exactly as in the input image: nothing new enters the shot, "
+        "no bottle, no container, no packaging, no product of any kind, the foreground stays empty. "
+        "The camera drifts in very slowly.", None,
+        "bottle, pump bottle, plastic bottle, container, jar, tube, product packaging, label, new object entering frame"),
   ("07", "07_hug",   1.80, "Close-up. The character hugs the pump bottle tightly to her cheek with both arms, "
         "squeezes it happily and sways side to side. Small candies and sparkles drift down around her. "
         "The camera holds nearly still.", None),
@@ -252,7 +263,10 @@ def main():
         print("rates as published Sep 2026 - check the current pricing page before a big run")
         return
 
-    for num, name, dur, motion, last_name in want:
+    for row in want:
+        num, name, dur, motion, last_name = row[:5]
+        extra_neg = row[5] if len(row) > 5 else ''
+
         out = os.path.join(CLIPS, '%s.mp4' % num)
         use_last = bool(last_name) if a.last_frame == 'auto' else a.last_frame
         if os.path.exists(out):
@@ -261,7 +275,8 @@ def main():
         body = {
             "instances": [{"prompt": prompt}],
             "parameters": {"aspectRatio": a.aspect, "resolution": a.resolution,
-                           "negativePrompt": NEGATIVE, "sampleCount": 1}
+                           "negativePrompt": NEGATIVE + (", " + extra_neg if extra_neg else ""),
+                           "sampleCount": 1}
         }
         if a.no_audio: body["parameters"]["generateAudio"] = False
         if a.dry_run:
