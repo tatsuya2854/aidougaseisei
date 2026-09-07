@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="ja"><head><meta charset="utf-8"><title>char3d test</title>
+<style>*{margin:0;padding:0}html,body{width:1800px;height:620px;overflow:hidden;background:#1BBE1B}
+canvas{display:block}</style></head>
+<body>
+<script type="importmap">{"imports":{"three":"/node_modules/three/build/three.module.js","three/addons/":"/node_modules/three/examples/jsm/"}}</script>
+<script type="module">
+import * as THREE from 'three';
+import { makeCharacter, poseCharacter, H as CH } from './lib/char3d.js';
+import * as LK from './lib/look.js';
+
+const W=1800,H=620;
+const renderer=new THREE.WebGLRenderer({antialias:true,preserveDrawingBuffer:true});
+renderer.setSize(W,H); renderer.setPixelRatio(1);
+renderer.outputColorSpace=THREE.SRGBColorSpace;
+renderer.toneMapping=THREE.ACESFilmicToneMapping; renderer.toneMappingExposure=1.2;
+renderer.shadowMap.enabled=true; renderer.shadowMap.type=THREE.PCFSoftShadowMap;
+document.body.appendChild(renderer.domElement);
+const scene=new THREE.Scene(); scene.background=new THREE.Color(0xE9DFF3);
+const camera=new THREE.PerspectiveCamera(24,W/H,0.1,100);
+camera.position.set(0,1.75,17.5); camera.lookAt(0,1.62,0);
+
+const rig=LK.softRig(scene,false);
+rig.amb.intensity=0.62; rig.hemi.intensity=0.95; rig.key.intensity=1.35;
+rig.rim.intensity=0.9; rig.fill.intensity=0.55;
+
+const q=new URLSearchParams(location.search);
+const mode=q.get('mode')||'turn';
+const N=6;
+for(let i=0;i<N;i++){
+  const c=makeCharacter(); scene.add(c);
+  c.position.set(-6.6+i*2.64,0,0);
+  if(mode==='turn'){
+    c.rotation.y=(i/(N-1))*Math.PI*1.15 - 0.18;
+    poseCharacter(c,{expr:'stand'});
+  } else if(mode==='expr'){
+    const E=['stand','jump','reach','sit','present','shy'];
+    c.rotation.y=0.15; poseCharacter(c,{expr:E[i]});
+  } else {
+    const POSES=[
+      {expr:'stand'},
+      {expr:'jump', armL:-2.1, armR:2.1, legL:-0.34, legR:0.42, by:0.72, squash:0.16,
+       spine:-0.05, head:0.05, tail:-0.45, kneeL:-0.7, kneeR:-0.7},
+      {expr:'wave', armR:2.35, armL:-0.20, elbowR:-0.3, legL:-0.10, legR:0.12,
+       spine:0.05, head:-0.08, tail:0.35},
+      {expr:'reach', armR:1.30, armRF:-0.55, armL:-0.30, spineX:0.28, headX:0.18,
+       lean:0.05, tail:0.4},
+      {expr:'sit', by:-0.42, legLF:-1.30, legRF:-1.35, kneeL:1.0, kneeR:1.05,
+       armL:-0.5, armR:0.5, spineX:-0.08},
+      {expr:'shy', armL:-1.9, armR:1.9, elbowL:-1.1, elbowR:-1.1, head:-0.10,
+       spine:-0.05, tail:-0.3, squash:-0.08}
+    ];
+    c.rotation.y=0.16; poseCharacter(c,POSES[i]);
+  }
+}
+window.__ready=true;
+window.render=function(){ renderer.render(scene,camera); };
+window.render();
+</script></body></html>

@@ -1,0 +1,23 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>cmp</title>
+<style>*{margin:0;padding:0}html,body{width:800px;height:900px;overflow:hidden;background:#1BBE1B}canvas{display:block}</style></head>
+<body>
+<script type="importmap">{"imports":{"three":"/node_modules/three/build/three.module.js","three/addons/":"/node_modules/three/examples/jsm/"}}</script>
+<script type="module">
+import * as THREE from 'three';
+import { makeCharacter, poseCharacter, H as CH } from './lib/char3d.js';
+import * as LK from './lib/look.js';
+const W=800,H=900;
+const renderer=new THREE.WebGLRenderer({antialias:true,preserveDrawingBuffer:true,alpha:true});
+renderer.setSize(W,H); renderer.setPixelRatio(1);
+renderer.outputColorSpace=THREE.SRGBColorSpace;
+renderer.toneMapping=THREE.ACESFilmicToneMapping; renderer.toneMappingExposure=1.18;
+document.body.appendChild(renderer.domElement);
+const scene=new THREE.Scene();
+const camera=new THREE.OrthographicCamera(-1.9,1.9,3.5,-0.775,0.1,50);
+camera.position.set(0,0,14); camera.lookAt(0,0,0);
+const rig=LK.softRig(scene,false);
+rig.amb.intensity=0.66; rig.hemi.intensity=1.0; rig.key.intensity=1.3; rig.rim.intensity=0.8; rig.fill.intensity=0.6;
+const c=makeCharacter(); scene.add(c); poseCharacter(c,{expr:'stand'});
+window.__ready=true; window.render=function(){renderer.render(scene,camera);}; window.render();
+</script></body></html>
