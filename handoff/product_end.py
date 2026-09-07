@@ -110,6 +110,17 @@ def main():
     sub_al = als[y0 - oy:y1 - oy, x0 - ox:x1 - ox].astype(np.float32)[:, :, None] / 255
     print('bottle placed at (%d,%d) size %dx%d' % (ox, oy, pw, ph))
 
+    # the generated "?" shot keeps drifting under the composited bottle, so freeze the
+    # base on the flash frame and give it a slow push instead: nothing moves under the
+    # illustration, and its edges can never peek out
+    hold_i = min(int(round(FLASH * FPS)), len(src) - 1)
+    frozen = src[hold_i].astype(np.float32)
+
+    def pushed(u):
+        z = 1.0 + 0.035 * min(u / (TOTAL - FLASH), 1.0)
+        m = cv2.getRotationMatrix2D((W / 2, H / 2), 0, z)
+        return cv2.warpAffine(frozen, m, (W, H), flags=cv2.INTER_LANCZOS4, borderMode=cv2.BORDER_REPLICATE)
+
     ff = subprocess.Popen(['ffmpeg', '-y', '-loglevel', 'error', '-f', 'rawvideo', '-pix_fmt', 'bgr24',
                            '-s', '%dx%d' % (W, H), '-r', str(FPS), '-i', '-', '-an',
                            '-c:v', 'libx264', '-preset', 'slow', '-crf', '17', '-pix_fmt', 'yuv420p', a.out],
@@ -126,7 +137,7 @@ def main():
                 k = (u + 0.5) / 0.5
                 fr = base + glow * (k ** 2) * 0.6
             else:
-                fr = base + glow * 0.9
+                fr = pushed(u) + glow * 0.9
                 fr[y0:y1, x0:x1] = fr[y0:y1, x0:x1] * (1 - sub_al) + sub_im * sub_al
                 cap = np.array(caption(u).convert('RGBA')).astype(np.float32)
                 ca = cap[:, :, 3:4] / 255
