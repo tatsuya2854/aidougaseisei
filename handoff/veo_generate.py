@@ -11,15 +11,18 @@ seeded from the 3D render's clean start plates so the motion starts on-model.
     python3 handoff/veo_generate.py                    # all eight
     ./handoff/assemble.sh                              # cut it together
 
-Clips land in handoff/clips/0X.mp4, which is exactly where assemble.sh
-looks; any shot without a clip falls back to the 3D render.
-Shot 9 (the product cut) is deliberately absent: the package lettering
-does not survive a generative pass.
+Clips land in handoff/clips/0X.mp4, which is exactly where assemble_ref.sh
+looks; any shot without a clip falls back to a slow push on its seed plate.
+
+The seed plates are the reference video's own key frames with every visible
+bottle label swapped for the "?" label (handoff/make_ref_plates.py). The
+illustrator's bottle is never sent to the model: shot 08 ends on the "?"
+bottle and handoff/product_end.py composites the real one over it.
 """
 import argparse, base64, json, os, sys, time, urllib.request, urllib.error, subprocess
 
 ROOT   = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-PLATES = os.path.join(ROOT, 'handoff', 'plates')
+PLATES = os.path.join(ROOT, 'handoff', 'plates_ref')
 CLIPS  = os.path.join(ROOT, 'handoff', 'clips')
 LOGS   = os.path.join(ROOT, 'handoff', 'logs')
 HOST   = 'https://generativelanguage.googleapis.com'
@@ -36,15 +39,16 @@ STYLE = (
   "stitched cat ears and small black bats across the brow, a dark brown twin-tail with a candy corn "
   "and a bat clip, a sleeveless orange vest with a black jack-o'-lantern face, black and white "
   "striped sleeves, dark grey shorts with a white cobweb print, white sneakers with a ghost face. "
-  "She holds two big glossy cheer pom-poms, one orange-and-teal and one pink-and-purple, decorated "
-  "with candies and stars, and they swing and jiggle with her movement. "
+  "The white pump bottle in the scene has a pastel lavender-to-peach label with a big glowing "
+  "question mark, tiny bats, a ghost, a jack-o'-lantern and a black cat; keep that label exactly as "
+  "in the input image, never redraw it and never add text to it. "
   "The face must stay exactly as in the input image: closed crescent squinting eyes, thick black "
   "brows, round pink blush. Never open the eyes, never draw pupils. Keep the character's design, "
   "proportions and colours identical to the input image in every frame. "
 )
 NEGATIVE = ("open eyes, realistic eyes, pupils, irises, changed facial expression, extra fingers, "
             "text, letters, watermark, morphing face, distorted logo, photorealistic human skin, "
-            "harsh shadows, high contrast")
+            "harsh shadows, high contrast, changed label, new label artwork")
 
 # Published per-second rates, Sep 2026. Verify against the current pricing page
 # before a big run: these move, and they are the whole basis of the estimate.
@@ -58,15 +62,34 @@ RATES = {
 }
 CLIP_SECONDS = 8            # Veo returns a fixed-length clip; we trim it afterwards
 
+# (number, seed plate, seconds kept in the cut, motion prompt, last-frame plate or None)
+# Durations follow the reference video beat for beat.
 SHOTS = [
-  ("01", "01_landing",     2.70, "The character lands on the cobbled street with a soft squash, springs back up and shakes both pom-poms in a happy cheer, bouncing lightly on her toes, the pom-poms jiggling with every beat. Candy pieces drift slowly past the lens. The camera pushes in very slowly."),
-  ("02", "02_run",         2.70, "The character runs cheerfully toward the camera down the cobbled street under an arch of glowing pumpkins, pom-poms in both hands swinging with her arms, a lively up-and-down bounce in her step. The camera dollies back slowly to hold the framing."),
-  ("03", "03_bigpumpkin",  2.40, "The character sits happily beside a large glowing pumpkin, swaying gently side to side with a pom-pom resting in each hand, candle flames flickering in the foreground. Very slow camera drift to the right."),
-  ("04", "04_doorstep",    2.40, "The character, without pom-poms, walks up to a doorstep, stops, and does a curious double take, leaning in and tilting her head at the small white pump bottle sitting on the step. The camera creeps forward slightly."),
-  ("05", "05_pump",        2.20, "Close-up. The character, without pom-poms, holds the small white pump bottle up in both hands and looks at it curiously, then hugs it a little closer, shifting her weight. The camera holds nearly still, breathing very slightly."),
-  ("06", "06_archjump",    2.40, "The character does three big joyful cheer jumps under the pumpkin arch, throwing both pom-poms high on every jump, the pom-poms flying up and flopping back down, candies bouncing on the ground. Slight low-angle camera rise."),
-  ("07", "07_bustup",      2.00, "Bust-up. The character, without pom-poms, presses both hands to her cheeks bashfully and sways, giving a shy little hop, while bats glide across the sky far behind and bokeh candy drifts past. The camera is almost static with a tiny handheld float."),
-  ("08", "08_hero",        2.60, "Hero shot. The character stands on top of a giant pumpkin and, after a small crouch, proudly sweeps the small white pump bottle high above her head with one arm. Candies float upward around her and the sky glows warmer. The camera arcs slowly around to centre her."),
+  ("01", "01_face",  1.40, "Close-up. The character giggles and tilts her head with a small happy bounce, "
+        "the hood's cat ears wobbling, then glances down toward something below frame with a curious smile. "
+        "Blurred jack-o'-lanterns glow behind her. The camera pushes in very slowly.", None),
+  ("02", "02_stone", 2.60, "Top-down view. The character crouches over the small white pump bottle lying on the mossy "
+        "cobblestones among scattered candies, leans in curiously and reaches a hand toward it. A candy rolls "
+        "slightly. The camera drifts down very slowly.", None),
+  ("03", "03_hands", 2.00, "Close-up. Two small hands in striped sleeves hold the white pump bottle with the glowing "
+        "question-mark label up to the camera and turn it very slightly to admire it, the label catching the "
+        "warm pumpkin light. Candle flames flicker on the jack-o'-lanterns behind. The camera holds nearly still.", None),
+  ("04", "04_raise", 2.20, "The character stands on a giant pumpkin and holds the pump bottle high with one arm, "
+        "beaming, then bounces on her toes and sways it proudly. Wrapped candies float gently upward around her "
+        "in the pastel dusk sky. The camera arcs slowly around her.", None),
+  ("05", "05_pump",  2.20, "Macro. A small finger presses the pump and a swirl of soft white cream is dispensed onto "
+        "an open palm, thick and glossy, then the finger lifts. Bokeh pumpkins glow warmly in the background. "
+        "The camera holds still with a tiny drift.", None),
+  ("06", "06_sit",   2.80, "The character sits on top of a big pumpkin with giant candy lollipops behind her and gently "
+        "rubs cream onto her knee with both hands in slow soothing circles, swaying softly, looking content. "
+        "The camera drifts in very slowly.", None),
+  ("07", "07_hug",   1.80, "Close-up. The character hugs the pump bottle tightly to her cheek with both arms, "
+        "squeezes it happily and sways side to side. Small candies and sparkles drift down around her. "
+        "The camera holds nearly still.", None),
+  ("08", "08_stand", 2.00, "Product shot. The white pump bottle with the glowing question-mark label stands on a "
+        "glossy reflective floor among lit jack-o'-lanterns. The bottle stays perfectly still and centred; only "
+        "the candle flames inside the pumpkins flicker and faint sparkles drift. Locked-off camera, absolutely "
+        "no camera movement, no zoom.", "08_stand"),
 ]
 
 KEYFILE = os.path.expanduser('~/.gemini_api_key')
@@ -141,12 +164,12 @@ def call(path, payload=None, method=None, key=None, timeout=120, _tries=0):
                 "project's billing setup), then re-run. Nothing was generated or charged.\n" % path)
         raise SystemExit("HTTP %s from %s\n%s" % (e.code, path, body[:1200]))
 
-def plate_jpeg(name, tag='start', width=720):
+def plate_jpeg(name, width=720):
     """Downscale the 1080x1920 plate to a small JPEG for upload."""
-    src = os.path.join(PLATES, '%s_%s.png' % (name, tag))
+    src = os.path.join(PLATES, '%s.png' % name)
     if not os.path.exists(src):
-        sys.exit("missing plate: " + src)
-    dst = os.path.join(LOGS, '%s_%s_%d.jpg' % (name, tag, width))
+        sys.exit("missing plate: %s (run handoff/make_ref_plates.py)" % src)
+    dst = os.path.join(LOGS, '%s_%d.jpg' % (name, width))
     os.makedirs(LOGS, exist_ok=True)
     subprocess.run(['ffmpeg', '-y', '-loglevel', 'error', '-i', src,
                     '-vf', 'scale=%d:-2' % width, '-q:v', '3', dst], check=True)
@@ -159,8 +182,9 @@ def main():
     ap.add_argument('--shots', default='all', help='e.g. 1,3,8')
     ap.add_argument('--aspect', default='9:16')
     ap.add_argument('--resolution', default='1080p')
-    ap.add_argument('--last-frame', action='store_true',
-                    help='also send the shot end plate (only some models accept it)')
+    ap.add_argument('--last-frame', nargs='?', const=True, default='auto',
+                    help="send a last frame too: 'auto' (default) only for shots that declare one, "
+                         "or pass the flag to force it for every shot (reuses the start plate)")
     ap.add_argument('--no-audio', action='store_true',
                     help='ask the model to skip audio (we mix our own score); some models reject it')
     ap.add_argument('--dry-run', action='store_true')
@@ -228,8 +252,9 @@ def main():
         print("rates as published Sep 2026 - check the current pricing page before a big run")
         return
 
-    for num, name, dur, motion in want:
+    for num, name, dur, motion, last_name in want:
         out = os.path.join(CLIPS, '%s.mp4' % num)
+        use_last = bool(last_name) if a.last_frame == 'auto' else a.last_frame
         if os.path.exists(out):
             print("shot %s: already generated, skipping" % num); continue
         prompt = STYLE + motion
@@ -240,24 +265,26 @@ def main():
         }
         if a.no_audio: body["parameters"]["generateAudio"] = False
         if a.dry_run:
-            body["instances"][0]["image"] = {"bytesBase64Encoded": "<%s_start.jpg>" % name,
+            body["instances"][0]["image"] = {"bytesBase64Encoded": "<%s.jpg>" % name,
                                              "mimeType": "image/jpeg"}
-            if a.last_frame:
-                body["parameters"]["lastFrame"] = {"bytesBase64Encoded": "<%s_end.jpg>" % name,
-                                                   "mimeType": "image/jpeg"}
+            if use_last:
+                lf = {"bytesBase64Encoded": "<%s.jpg>" % (last_name or name), "mimeType": "image/jpeg"}
+                (body["instances"][0] if a.vertex else body["parameters"])["lastFrame"] = lf
             print("\n--- shot %s -> %s:predictLongRunning (trim to %.2fs) ---" % (num, a.model, dur))
-            print(json.dumps(body, ensure_ascii=False, indent=2)[:1400])
+            shown = json.loads(json.dumps(body)); shown["instances"][0]["prompt"] = prompt[:160] + " ... " + motion[-120:]
+            print(json.dumps(shown, ensure_ascii=False, indent=2))
             continue
 
-        img = plate_jpeg(name, 'start')
+        img = plate_jpeg(name)
         body["instances"][0]["image"] = {
             "bytesBase64Encoded": base64.b64encode(open(img, 'rb').read()).decode(),
             "mimeType": "image/jpeg"}
-        if a.last_frame:
-            last = plate_jpeg(name, 'end')
-            body["parameters"]["lastFrame"] = {
-                "bytesBase64Encoded": base64.b64encode(open(last, 'rb').read()).decode(),
-                "mimeType": "image/jpeg"}
+        if use_last:
+            last = plate_jpeg(last_name or name)
+            lf = {"bytesBase64Encoded": base64.b64encode(open(last, 'rb').read()).decode(),
+                  "mimeType": "image/jpeg"}
+            # Vertex takes the last frame inside the instance, the Gemini API in parameters
+            (body["instances"][0] if a.vertex else body["parameters"])["lastFrame"] = lf
 
         print("shot %s: submitting to %s ..." % (num, a.model))
         if a.vertex:
@@ -314,10 +341,10 @@ def main():
             if not b64:
                 sys.exit("shot %s: no video in the response, see handoff/logs/%s_done.json" % (num, num))
             open(out, 'wb').write(base64.b64decode(b64))
-        print("shot %s -> %s  (assemble.sh will trim it to %.2fs)" % (num, out, dur))
+        print("shot %s -> %s  (assemble_ref.sh will trim it to %.2fs)" % (num, out, dur))
 
     if not a.dry_run:
-        print("\ndone. now run:  ./handoff/assemble.sh")
+        print("\ndone. now run:  ./handoff/assemble_ref.sh")
 
 if __name__ == '__main__':
     main()

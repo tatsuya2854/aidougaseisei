@@ -5,10 +5,21 @@ Fancy / kawaii: music box + glockenspiel + pizzicato, bright major,
 light percussion.  125 BPM (beat 0.48s, bar 1.92s).  Accent hits are
 placed on the picture cuts, which do not sit on a uniform grid.
 """
-import numpy as np, wave, os
+import numpy as np, wave, os, argparse
+
+# Timeline knobs. Defaults reproduce the original 24s cut; the reference-style
+# cut passes its own (see handoff/assemble_ref.sh).
+_ap = argparse.ArgumentParser()
+_ap.add_argument('--dur', type=float, default=24.0)
+_ap.add_argument('--cuts', default='2.70,5.40,7.80,10.20,12.40,14.80,16.80')
+_ap.add_argument('--pops', default='0.60,1.14,13.06,13.86,14.66')
+_ap.add_argument('--reveal', type=float, default=20.20, help='time of the product flash')
+_ap.add_argument('--out', default=None)
+_A = _ap.parse_args()
 
 SR   = 44100
-DUR  = 24.0
+DUR  = _A.dur
+REV  = _A.reveal
 N    = int(SR * DUR)
 BEAT = 0.48
 BAR  = BEAT * 4
@@ -142,7 +153,7 @@ for b in range(NB):
     if t0 > DUR: break
     root = midi(chord(b)[0] - 12)
     fifth = midi(chord(b)[1] - 12)
-    lively = 1.4 <= t0 < 19.4
+    lively = 1.4 <= t0 < REV - 0.8
     add(sub(root, BEAT*3.6), t0, 0.55 if lively else 0.34)
     if lively:
         for k, f, g in ((0, root, 1.0), (1.5, fifth, .7), (2, root, .95), (3, fifth, .65), (3.5, root, .5)):
@@ -156,7 +167,7 @@ for b in range(NB):
 # glockenspiel 16th sparkle from bar 4 on
 for b in range(4, NB):
     t0 = b*BAR
-    if t0 > 19.0: break
+    if t0 > REV - 1.2: break
     c = chord(b)
     seq = [c[2]+12, c[3]+12, c[2]+24, c[3]+12, c[1]+24, c[3]+12, c[2]+24, c[3]+24]
     for k, n in enumerate(seq):
@@ -178,49 +189,49 @@ MEL = [  # (bar, beat, midi, dur beats)
 ]
 for (b, be, n, dl) in MEL:
     t0 = b*BAR + be*BEAT
-    if t0 >= 19.2: continue
+    if t0 >= REV - 1.0: continue
     add(music_box(midi(n), max(0.9, dl*BEAT + 1.0)), t0, 0.95, pan=0.10)
     add(music_box(midi(n-12), max(0.8, dl*BEAT + 0.7)), t0, 0.28, pan=-0.14)
 
 # ---------- picture-cut accents ----------
-CUTS = [2.70, 5.40, 7.80, 10.20, 12.40, 14.80, 16.80]
+CUTS = [float(x) for x in _A.cuts.split(',') if x]
 for i, c in enumerate(CUTS):
     add(whoosh(0.5, seed=30+i, up=True), c-0.36, 0.55, pan=-0.25 if i % 2 else 0.25)
     for (dt, f, g) in chime_cluster(84 + (i % 3)*2, n=3, seed=50+i, spread=0.055, gain=0.5):
         add(glock(f, 1.0), c + dt, g, pan=0.2)
 
 # jump / bounce pops
-for t0 in (0.60, 1.14, 13.06, 13.86, 14.66):
+for t0 in [float(x) for x in _A.pops.split(',') if x]:
     add(pizz(midi(88), 0.24), t0, 0.5, pan=0.1)
     add(pizz(midi(93), 0.20), t0 + 0.055, 0.35, pan=-0.1)
 
 # ---------- the reveal ----------
-add(riser(1.3, seed=13), 17.55, 0.40)                       # lifting into the hero shot
-add(whoosh(0.7, seed=91, up=True), 19.06, 0.42)             # cut to the product cut
+add(riser(1.3, seed=13), REV-2.65, 0.40)                       # lifting into the hero shot
+add(whoosh(0.7, seed=91, up=True), REV-1.14, 0.42)             # cut to the product cut
 
 # magic gathers around the mystery bottle, peaking exactly on the flash
 for (dt, f, g) in harp_run(72, n=12, step=0.040, up=True, gain=0.6):
-    add(glock(f, 1.2), 19.50 + dt, g*0.72, pan=-0.35 + dt*4)
-add(riser(0.95, seed=23), 19.26, 0.62)
-add(riser(0.52, seed=24), 19.70, 0.58)
-add(sub(midi(36), 0.9), 19.88, 0.30)
+    add(glock(f, 1.2), REV-0.70 + dt, g*0.72, pan=-0.35 + dt*4)
+add(riser(0.95, seed=23), REV-0.94, 0.62)
+add(riser(0.52, seed=24), REV-0.50, 0.58)
+add(sub(midi(36), 0.9), REV-0.32, 0.30)
 
 # the flash: bright cluster, low whump, then the product blooms
 for (dt, f, g) in chime_cluster(84, n=10, seed=77, spread=0.052, gain=1.0):
-    add(glock(f, 2.2), 20.20 + dt, g*0.85, pan=0.1)
-add(whoosh(1.3, seed=92, up=False), 20.18, 0.46)
-add(kick(0.30), 20.20, 0.55)
-add(pizz(midi(88), 0.24), 20.21, 0.42, pan=0.1)
+    add(glock(f, 2.2), REV+0.00 + dt, g*0.85, pan=0.1)
+add(whoosh(1.3, seed=92, up=False), REV-0.02, 0.46)
+add(kick(0.30), REV+0.00, 0.55)
+add(pizz(midi(88), 0.24), REV+0.01, 0.42, pan=0.1)
 
 # closing bells: C major, then a warm resolve
-CLOSE = [(20.24, [72, 76, 79]), (21.10, [74, 77, 81]),
-         (22.00, [72, 76, 84]), (22.92, [67, 72, 76, 79])]
+CLOSE = [(REV+0.04, [72, 76, 79]), (REV+0.90, [74, 77, 81]),
+         (REV+1.80, [72, 76, 84]), (REV+2.72, [67, 72, 76, 79])]
 for (t0, notes) in CLOSE:
     for j, n in enumerate(notes):
         add(music_box(midi(n), 2.6), t0 + j*0.07, 0.85, pan=-0.2 + j*0.16)
         add(glock(midi(n+12), 1.6), t0 + j*0.07 + 0.02, 0.22, pan=0.2 - j*0.14)
-add(pad([midi(x) for x in [60, 64, 67, 72]], 4.6), 20.16, 0.88)
-for i, t0 in enumerate([20.62, 21.45, 22.25, 23.05, 23.55]):
+add(pad([midi(x) for x in [60, 64, 67, 72]], 4.6), REV-0.04, 0.88)
+for i, t0 in enumerate([REV+0.42, REV+1.25, REV+2.05, REV+2.85, REV+3.35]):
     add(glock(midi([88, 91, 84, 93, 88][i]), 1.6), t0, 0.24, pan=[-0.3, 0.3, -0.15, 0.25, 0][i])
 
 # ---------- space + master ----------
@@ -243,7 +254,7 @@ L = np.tanh(L/mx*1.22)*0.84; R = np.tanh(R/mx*1.22)*0.84
 out = np.empty(N*2, dtype=np.int16)
 out[0::2] = np.clip(L, -1, 1)*32000
 out[1::2] = np.clip(R, -1, 1)*32000
-path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'score.wav')
+path = _A.out or os.path.join(os.path.dirname(os.path.abspath(__file__)), 'score.wav')
 w = wave.open(path, 'wb'); w.setnchannels(2); w.setsampwidth(2); w.setframerate(SR)
 w.writeframes(out.tobytes()); w.close()
 print('wrote', path)
