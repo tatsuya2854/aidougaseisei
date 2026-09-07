@@ -20,7 +20,7 @@ img{display:block}
 <script type="importmap">{"imports":{"three":"/node_modules/three/build/three.module.js","three/addons/":"/node_modules/three/examples/jsm/"}}</script>
 <script type="module">
 import * as THREE from 'three';
-import { buildCharacter, poseCharacter, loadCharacterPlate, faceCamera, setPose, poseAt } from './lib/charplate.js';
+import { buildPuppet, posePuppet, loadPuppet, faceCamera, exprAt } from './lib/puppet.js';
 import * as P from './lib/props.js';
 import * as LK from './lib/look.js';
 import { makeBottle, bottleEnv, H as BOTTLE_H } from './lib/bottle3d.js';
@@ -243,8 +243,8 @@ for(let i=0;i<3;i++){
 /* ---------------- character + bottle ---------------- */
 let char=null, heldBottle=null, propBottle=null, bottleGlow=null;
 const ready=(async function(){
-  const poses=await loadCharacterPlate();
-  char=buildCharacter(poses); scene.add(char);
+  const rigAssets=await loadPuppet();
+  char=buildPuppet(rigAssets); scene.add(char);
   const labelTex=await new Promise(r=>new THREE.TextureLoader().load('/assets/build/label_hall.png',
     t=>{t.colorSpace=THREE.SRGBColorSpace;t.anisotropy=16;r(t);}));
   const bEnv=bottleEnv(renderer,false);
@@ -332,36 +332,55 @@ function updateWorld(t){
 }
 
 /* ------------------------------------------------------------------
-   Animation. charXform is a pure function of time, so the secondary
-   motion (head lag, arc, shear, wobble) is derived by sampling it
-   either side of the frame instead of being hand-keyed per shot.
+   Animation. The character is an articulated puppet now, so every shot
+   is written as joint angles. charXform is a pure function of time and
+   the follow-through (head lag, tail whip, body arc) is derived by
+   sampling it either side of the frame.
    ------------------------------------------------------------------ */
 
 // one bounce: crouch, snap into the air, land hard, wobble it off
 function bounce(u,h){
   const A=0.22,B=0.84;
-  if(u<A){ const k=u/A; return {y:0,sq:-0.30*k*k,air:0,land:0}; }
+  if(u<A){ const k=u/A; return {y:0,sq:-0.30*k*k,air:0,land:0,ph:k*0.22}; }
   if(u<B){ const p=(u-A)/(B-A);
-    return {y:h*4*p*(1-p), sq:0.24*Math.abs(2*p-1)-0.02, air:1, land:0}; }
+    return {y:h*4*p*(1-p), sq:0.24*Math.abs(2*p-1)-0.02, air:1, land:0, p:p, ph:0.22+p*0.62}; }
   const k=(u-B)/(1-B);
-  return {y:0, sq:-0.36*Math.exp(-k*4.2)*Math.cos(k*9.0), air:0, land:1-k};
+  return {y:0, sq:-0.36*Math.exp(-k*4.2)*Math.cos(k*9.0), air:0, land:1-k, ph:0.84+k*0.16};
 }
 function hops(lt,t0,per,h){
-  if(lt<t0) return {y:0,sq:0,air:0,land:0,n:-1};
+  if(lt<t0) return {y:0,sq:0,air:0,land:0,n:-1,u:0};
   const n=Math.floor((lt-t0)/per), u=((lt-t0)%per)/per;
   const b=bounce(u,h); b.n=n; b.u=u; return b;
 }
+// limbs through one bounce: gather, throw up, tuck, reach for the ground
+function bounceLimbs(o,b,amt){
+  const u=b.u==null?0:b.u, air=b.air, k=amt==null?1:amt;
+  let raise, splay;
+  if(u<0.22){ const q=u/0.22; raise=lerp(0.14,-0.28,q); splay=lerp(0.10,0.40,q); }
+  else if(air){ const p=b.p;
+    raise=lerp(-0.28,2.05,clamp(p*3.0))*(p<0.75?1:lerp(1,0.78,(p-0.75)/0.25));
+    splay=Math.sin(p*Math.PI)*0.52+0.10; }
+  else { const q=1-b.land; raise=lerp(1.55,0.14,eOut(q)); splay=lerp(0.56,0.10,eOut(q)); }
+  o.armL=-raise*k; o.armR=raise*k;
+  o.legL=-splay*k*0.85; o.legR=splay*k;
+}
+// alternating step cycle, read from the front: legs swing side to side,
+// arms stay a little out and trade places
+function stepCycle(o,ph,amp,armAmp){
+  const sn=Math.sin(ph);
+  o.legL=-0.06+sn*amp; o.legR=0.06+sn*amp;
+  o.armL=-(0.26+armAmp*0.5)-sn*armAmp;
+  o.armR=(0.26+armAmp*0.5)-sn*armAmp;
+}
 
-const POSE_KEYS=[
-  [[0.00,'jump'],[0.62,'stand'],[0.94,'jump'],[1.28,'stand'],[1.56,'jump'],
-   [1.90,'stand'],[2.18,'jump'],[2.52,'stand']],
-  [[2.70,'wave'],[3.02,'stand'],[3.34,'wave'],[3.66,'stand'],[3.98,'wave'],
-   [4.30,'stand'],[4.62,'wave'],[4.94,'stand'],[5.20,'wave']],
+const EXPR_KEYS=[
+  [[0.00,'jump'],[0.62,'stand'],[0.94,'jump'],[1.56,'jump'],[2.18,'jump']],
+  [[2.70,'wave'],[4.05,'jump'],[5.10,'wave']],
   [[5.40,'sit']],
   [[7.80,'stand'],[8.18,'reach'],[9.55,'hold2']],
   [[10.20,'hold2'],[11.22,'shy']],
-  [[12.40,'jump'],[13.06,'stand'],[13.24,'jump'],[13.86,'stand'],[14.04,'jump'],[14.66,'stand']],
-  [[14.80,'shy'],[15.86,'stand'],[16.06,'shy']],
+  [[12.40,'jump']],
+  [[14.80,'shy']],
   [[16.80,'hold2'],[17.18,'present']],
   [[19.40,'stand'],[20.90,'wave'],[22.30,'stand']]
 ];
@@ -375,110 +394,161 @@ const LANDINGS=[
 
 function charXform(t,si){
   const s=SH[si], u=clamp((t-s.t0)/(s.t1-s.t0)), lt=t-s.t0;
-  const o={x:0,y:0,z:-8,ry:0,sq:0,lean:0,tip:0,wobA:0,wobP:0,sc:1};
+  const o={x:0,y:0,z:-8,ry:0,sq:0,lean:0,spine:0,head:0,tail:0,
+           armL:0,armR:0,legL:0,legR:0,torsoBend:0,sc:1,hideArms:false};
+  const breathe=0.020*Math.sin(t*2.3+si);
   if(si===0){
-    // drop in under gravity, land hard, then hop
     const fall=pr(lt,0.06,0.60);
     const h=hops(lt,0.72,0.62,0.62);
-    o.x=0; o.z=-8.0; o.ry=0.07;
+    o.z=-8.0; o.ry=0.07;
     o.y=(fall<1? 9.6*(1-fall*fall) : h.y);
-    if(fall<1){ o.sq=0.30; o.lean=-0.04; }
-    else if(lt<0.72){ const k=pr(lt,0.60,0.72);
+    if(fall<1){
+      o.sq=0.30; o.lean=-0.03;
+      o.armL=-2.15; o.armR=2.15; o.legL=-0.34; o.legR=0.46;
+      o.spine=-0.10; o.head=0.12; o.torsoBend=0.05;
+    } else if(lt<0.72){
+      const k=pr(lt,0.60,0.72);
       o.sq=-0.46*Math.exp(-k*3.6)*Math.cos(k*8.4);
-      o.wobA=0.075*Math.exp(-k*3.0)*Math.sin(k*13.0); }
-    else { o.sq=h.sq; o.wobA=0.045*h.land*Math.sin((1-h.land)*11); }
-    o.lean+=-0.06+0.05*Math.sin(Math.max(0,lt-0.7)*3.0);
+      o.armR=lerp(1.90,0.16,eOut(k)); o.armL=-o.armR;
+      o.legL=lerp(-0.66,-0.10,eOut(k)); o.legR=lerp(0.74,0.12,eOut(k));
+      o.spine=lerp(0.16,0.02,k); o.head=lerp(-0.20,0.02,k);
+    } else {
+      o.sq=h.sq; bounceLimbs(o,h,0.85);
+      o.spine=-0.04*h.air; o.head=0.05*h.air;
+    }
+    o.lean+=-0.05+0.04*Math.sin(Math.max(0,lt-0.7)*3.0);
   } else if(si===1){
-    // run at camera: forward lean, step bob, weight shifting side to side
-    const e=eIO(u), run=lt*6.4;
-    o.x=lerp(0.75,-0.18,e)+Math.sin(run*0.5)*0.10;
+    // run at camera: a real step cycle, forward lean, shoulders working
+    const e=eIO(u), run=lt*7.0;
+    o.x=lerp(0.75,-0.18,e)+Math.sin(run*0.5)*0.09;
     o.z=lerp(-19.2,-9.0,e);
-    o.y=Math.abs(Math.sin(run))*0.30;
-    o.sq=-0.16*Math.pow(Math.abs(Math.cos(run)),3)+0.10*Math.abs(Math.sin(run));
-    o.lean=-0.13+0.05*Math.sin(run); o.ry=0.05;
+    o.y=Math.abs(Math.sin(run))*0.26;
+    o.sq=-0.13*Math.pow(Math.abs(Math.cos(run)),3)+0.08*Math.abs(Math.sin(run));
+    stepCycle(o,run,0.30,0.42);
+    o.lean=-0.15; o.spine=0.09+0.05*Math.sin(run*2);
+    o.head=-0.06+0.05*Math.sin(run*2+0.8);
+    o.torsoBend=0.04*Math.sin(run);
+    o.ry=0.05;
   } else if(si===2){
-    // settled by the pumpkin, breathing and swaying
+    // sitting on the ground by the pumpkin
     o.x=-0.60; o.z=-11.9; o.ry=0.40;
-    const b=Math.abs(Math.sin(lt*Math.PI/0.86));
-    o.y=b*0.20; o.sq=-0.07+b*0.17;
-    o.lean=-0.09+0.05*Math.sin(lt*1.5);
-    o.tip=0.07*Math.sin(lt*1.15+0.6);
+    const b=Math.sin(lt*1.5), b2=Math.sin(lt*2.9+1.1);
+    o.y=-0.44; o.legL=-1.16-0.05*b; o.legR=1.22+0.05*b;
+    o.armL=-0.52-0.10*b2; o.armR=0.50+0.10*b2;
+    o.spine=-0.06+0.05*b; o.head=0.10+0.07*b2; o.lean=-0.05;
+    o.sq=-0.05+0.05*Math.sin(lt*2.2)+breathe;
   } else if(si===3){
     // steps up to the doorstep, then a double take at the bottle
-    const walk=eIO(pr(lt,0.00,0.60));
-    o.x=lerp(5.95,5.42,walk); o.z=lerp(-8.15,-7.45,walk); o.ry=-0.22;
-    const b=Math.abs(Math.sin(lt*Math.PI/0.82));
-    o.y=b*0.15; o.sq=-0.05+b*0.13;
-    const dt1=pr(lt,0.52,0.70), dt2=pr(lt,0.70,0.98);   // pull back, snap in
-    o.lean=-0.10-0.13*dt1+0.30*dt2*(1-pr(lt,1.10,1.55));
-    o.tip=0.16*dt1-0.26*dt2+0.05*Math.sin(lt*1.9);
+    const walk=pr(lt,0.00,0.72), e=eIO(walk);
+    o.x=lerp(5.98,5.42,e); o.z=lerp(-8.20,-7.45,e); o.ry=-0.22;
+    if(walk<1){
+      const ph=lt*8.4; stepCycle(o,ph,0.26,0.34);
+      o.y=Math.abs(Math.sin(ph))*0.13; o.lean=-0.12; o.spine=0.07;
+    } else {
+      const l2=lt-0.72;
+      const dt1=pr(l2,0.00,0.20), dt2=pr(l2,0.20,0.48);
+      const rch=eOut(pr(l2,0.42,1.05))*(1-pr(l2,1.60,2.00));
+      o.y=Math.abs(Math.sin(l2*2.0))*0.05;
+      o.lean=-0.08-0.10*dt1+0.18*dt2;
+      o.spine=0.05+0.22*dt2;
+      o.head=0.18*dt1-0.30*dt2+0.05*Math.sin(l2*1.9);
+      o.armR=lerp(0.16,1.34,rch); o.armL=lerp(-0.16,-0.42,rch);
+      o.legL=-0.10; o.legR=0.12;
+      o.torsoBend=0.09*dt2;
+      o.sq=breathe;
+    }
   } else if(si===4){
+    // holding the mystery bottle up, weight shifting
     o.x=4.95; o.z=-6.90; o.ry=-0.24;
-    const b=Math.abs(Math.sin(lt*Math.PI/0.94));
-    o.y=b*0.13; o.sq=-0.05+b*0.12;
-    o.lean=-0.08+0.05*Math.sin(lt*1.6);
-    o.tip=-0.10+0.09*Math.sin(lt*1.25);
+    const b=Math.sin(lt*1.7), b2=Math.sin(lt*2.4+0.7);
+    o.y=0.04+0.05*Math.abs(Math.sin(lt*2.2));
+    o.sq=-0.03+0.05*Math.sin(lt*2.2)+breathe;
+    o.armR=1.16+0.09*b2; o.armL=-0.60-0.08*b;
+    o.legL=-0.08-0.03*b; o.legR=0.10+0.03*b;
+    o.spine=0.06+0.05*b; o.head=-0.09+0.07*b2;
+    o.lean=-0.05+0.04*b;
   } else if(si===5){
-    // trick or treat: three big jumps
+    // trick or treat: three big jumps, arms thrown up
     const h=hops(lt,0.10,0.80,1.95);
     o.x=Math.sin(lt*1.4)*0.22; o.z=-14.4; o.ry=0.02+0.10*Math.sin(lt*1.4);
     o.y=h.y; o.sq=h.sq;
-    o.wobA=0.05*h.land*Math.sin((1-h.land)*11);
-    o.lean=-0.08+0.07*Math.sin(lt*2.6);
+    bounceLimbs(o,h,1.15);
+    o.spine=-0.06*h.air; o.head=0.06*h.air;
+    o.lean=-0.05+0.06*Math.sin(lt*2.6);
   } else if(si===6){
-    // bashful: sway, one small shy hop, settle
-    const b=Math.abs(Math.sin(lt*Math.PI/0.92));
-    const h=hops(lt,1.00,0.46,0.32);
-    o.x=0.02+0.10*Math.sin(lt*1.1); o.z=-13.2; o.ry=0.10+0.07*Math.sin(lt*0.9);
-    o.y=b*0.16+(lt>1.0&&lt<1.46?h.y:0);
-    o.sq=-0.07+b*0.15;
-    o.lean=-0.10+0.06*Math.sin(lt*1.35);
-    o.tip=0.10*Math.sin(lt*1.05+1.1);
+    // bashful: hands are on the cheeks in this plate, so the arms come off
+    const b=Math.sin(lt*1.35), b2=Math.sin(lt*2.1+0.6);
+    const h=hops(lt,1.05,0.44,0.30);
+    o.x=0.02+0.10*b; o.z=-13.2; o.ry=0.10+0.07*Math.sin(lt*0.9);
+    o.y=(lt>1.05&&lt<1.49?h.y:0)+0.03*Math.abs(Math.sin(lt*2.0));
+    o.hideArms=true;
+    o.legL=-0.12-0.05*b; o.legR=0.14+0.05*b;
+    o.spine=-0.05+0.06*b; o.head=-0.09+0.08*b2;
+    o.lean=-0.07+0.05*b;
+    o.sq=-0.04+0.05*Math.sin(lt*2.0)+breathe;
   } else if(si===7){
-    const b=Math.abs(Math.sin(lt*Math.PI/0.96));
-    const anti=pr(lt,0.16,0.34), rise=eBack(pr(lt,0.34,1.05));
+    // hero: gather, then sweep the bottle up
+    const anti=pr(lt,0.14,0.36), rise=eBack(pr(lt,0.36,1.10));
+    const set=1-pr(lt,1.10,1.55);
+    const b=Math.sin(lt*1.8);
     o.x=HERO_X-0.62; o.z=HERO_Z+0.55; o.ry=0.04;
-    o.y=HERO_TOP+b*0.14;
-    o.sq=-0.22*anti*(1-rise)+0.20*rise*(1-pr(lt,1.05,1.45))+b*0.10;
-    o.lean=-0.05+0.05*Math.sin(lt*1.5);
-    o.tip=0.12*anti-0.10*rise+0.05*Math.sin(lt*1.2);
+    o.y=HERO_TOP+0.05*Math.abs(Math.sin(lt*2.0));
+    o.sq=-0.20*anti*(1-rise)+0.16*rise*set+breathe;
+    o.armR=lerp(0.14,2.30,rise)-0.26*anti*(1-rise);
+    o.armL=lerp(-0.10,-0.66,rise)-0.08*b;
+    o.legL=-0.10-0.04*b; o.legR=0.12+0.04*b;
+    o.spine=0.10*anti-0.10*rise+0.04*b;
+    o.head=0.14*anti-0.12*rise+0.05*b;
+    o.lean=-0.04+0.04*b;
   } else {
     const app=pr(t,20.05,20.75), idle=Math.max(0,t-19.9);
-    const b=Math.abs(Math.sin(idle*Math.PI/0.88));
+    const b=Math.sin(idle*1.8);
     o.x=lerp(-2.34,-1.285,eBack(app)); o.z=1.2; o.ry=0.24;
-    o.y=b*0.055; o.sq=-0.07+b*0.16;
-    o.lean=-0.09+0.05*Math.sin(idle*1.7);
-    o.tip=0.07*Math.sin(idle*1.3);
+    o.y=0.02*Math.abs(Math.sin(idle*2.2));
+    o.sq=-0.03+0.04*Math.sin(idle*2.2)+breathe;
+    const wv=(t>20.90&&t<22.30)?1:0;
+    o.armR=lerp(0.10,2.24+0.28*Math.sin(idle*9.5),wv);
+    o.armL=-0.12-0.06*b;
+    o.legL=-0.07-0.03*b; o.legR=0.09+0.03*b;
+    o.spine=0.04*b; o.head=-0.05+0.06*b;
+    o.lean=-0.05+0.04*b;
     o.sc=0.28;
   }
   return o;
 }
 
 function animChar(t,si){
-  const s=SH[si], lt=t-s.t0;
+  const s=SH[si];
   const c=charXform(t,si);
-  // sample either side, inside the shot, for velocity and acceleration
   const d=0.045;
   const ta=Math.max(s.t0+0.002,t-d), tb=Math.min(s.t1-0.002,t+d);
   const A=charXform(ta,si), B=charXform(tb,si), span=Math.max(1e-3,tb-ta);
   const vx=(B.x-A.x)/span, vy=(B.y-A.y)/span;
   const ax=((B.x-c.x)-(c.x-A.x))/(span*span*0.25);
+  const vhead=(B.head-A.head)/span, vry=(B.ry-A.ry)/span;
 
   const kk=(v,lim)=>Math.max(-lim,Math.min(lim,v));
-  const lag=kk(-vx*0.055-ax*0.0016,0.20);
-  const skew=kk(-vx*0.022,0.10);
-  const tip=c.tip+kk(-ax*0.0022,0.20)+kk(-vy*0.010,0.10);
-  const bend=kk(c.lean*0.55-vx*0.018,0.24);
+  // the head trails the body, the tail trails the head
+  const headLag=kk(-ax*0.0016-vx*0.020,0.16);
+  const tailWhip=kk(-vhead*0.24-vx*0.075-vry*0.30,0.85)
+                 +0.13*Math.sin(t*3.1)+0.07*Math.sin(t*5.3+1.2);
+  const arc=kk(c.lean*0.35-vx*0.012,0.16);
 
-  const pk=poseAt(t,POSE_KEYS[si]);
-  const pose={t:t,pose:pk.a,pose2:pk.b,poseW:pk.w,
-    squash:c.sq, lean:c.lean, bend:bend, lag:lag, skew:skew, headTip:tip,
-    wobA:c.wobA, wobP:t*9.0, breathe:0.022*Math.sin(t*2.35+si)};
+  posePuppet(char,{
+    expr:exprAt(t,EXPR_KEYS[si]),
+    squash:c.sq, lean:c.lean+kk(-vx*0.010,0.10),
+    spine:c.spine+headLag*0.5, head:c.head+headLag,
+    tail:c.tail+tailWhip,
+    armL:c.armL, armR:c.armR, legL:c.legL, legR:c.legR,
+    hideArms:c.hideArms,
+    torsoBend:c.torsoBend+arc, tailBend:tailWhip*0.20,
+    armLBend:kk(-vx*0.020,0.10), armRBend:kk(vx*0.020,0.10),
+    by:Math.max(0,0), bx:0
+  });
 
   char.position.set(c.x,c.y,c.z);
   char.rotation.y=c.ry;
   char.scale.setScalar(c.sc);
-  poseCharacter(char,pose);
   rig.key.position.set(c.x-4.5,c.y+9,c.z+8);
   rig.key.target.position.set(c.x,c.y+1.6,c.z);
   rig.key.target.updateMatrixWorld();

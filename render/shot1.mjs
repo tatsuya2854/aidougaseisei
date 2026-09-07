@@ -8,7 +8,8 @@ const server=http.createServer((req,res)=>{const p=path.join(ROOT,decodeURICompo
 await new Promise(r=>server.listen(8097,'127.0.0.1',r));
 const args=Object.fromEntries(process.argv.slice(2).map(a=>{const [k,...v]=a.replace(/^--/,'').split('=');return [k,v.join('=')||true];}));
 const b=await chromium.launch({args:['--use-gl=angle','--use-angle=swiftshader','--enable-unsafe-swiftshader','--ignore-gpu-blocklist','--force-color-profile=srgb']});
-const page=await b.newPage({viewport:{width:1080,height:1920},deviceScaleFactor:1});
+const vw=Number(args.w||1080), vh=Number(args.h||1920);
+const page=await b.newPage({viewport:{width:vw,height:vh},deviceScaleFactor:1});
 page.on('pageerror',e=>console.error('PAGE ERROR:',e.message));
 page.on('console',m=>{if(m.type()==='error')console.error('CONSOLE:',m.text());});
 await page.goto('http://127.0.0.1:8097/'+(args.page||'render/bottleshot.html'),{waitUntil:'load'});
